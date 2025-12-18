@@ -8,105 +8,100 @@
 <body>
     <h1 data-i18n="settingsTitle"></h1>
 
-    <div class="tabs">
-        <button class="tab-button active" data-provider="gemini" data-i18n="geminiProvider"></button>
-        <button class="tab-button" data-provider="siliconflow" data-i18n="siliconflowProvider"></button>
-        <button class="tab-button" data-provider="openrouter" data-i18n="openrouterProvider"></button>
-        <button class="tab-button" data-provider="ollama" data-i18n="ollamaProvider"></button>
-    </div>
-
-    <!-- Gemini Settings -->
-    <div id="gemini-settings" class="tab-content active">
+    <!-- 统一的LLM提供商设置 -->
+    <div class="provider-settings">
+        <h2>LLM 提供商设置</h2>
+        
         <div class="form-group">
-            <label for="gemini-api-key">
-                <span data-i18n="geminiApiKeyLabel"></span>
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" data-i18n="getApiKeyLink"></a>
-            </label>
-            <div class="api-key-container">
-                <input type="password" id="gemini-api-key" data-i18n-placeholder="geminiApiPlaceholder">
-                <button class="fetch-models-button btn-action" data-provider="gemini" data-i18n="fetchModelsButton"></button>
+            <label for="provider-select">选择提供商</label>
+            <select id="provider-select">
+                <option value="">请选择提供商</option>
+                <optgroup label="主流AI服务商">
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="google">Google AI</option>
+                    <option value="microsoft">Microsoft Azure</option>
+                </optgroup>
+                <optgroup label="聚合平台">
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+                    <option value="together">Together AI</option>
+                    <option value="groq">Groq</option>
+                </optgroup>
+                <optgroup label="国内平台">
+                    <option value="zhipuai">智谱AI</option>
+                    <option value="moonshot">月之暗面 Kimi</option>
+                    <option value="deepseek">深度求索 DeepSeek</option>
+                    <option value="qwen">通义千问</option>
+                    <option value="doubao">字节跳动豆包</option>
+                </optgroup>
+                <optgroup label="本地部署">
+                    <option value="ollama">Ollama</option>
+                    <option value="lmstudio">LM Studio</option>
+                    <option value="vllm">vLLM</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <!-- 动态提供商配置区域 -->
+        <div id="provider-config" style="display: none;">
+            <!-- API密钥配置 -->
+            <div class="form-group" id="api-key-group">
+                <label for="api-key-input">
+                    <span id="api-key-label">API密钥</span>
+                    <a href="#" id="api-key-help" target="_blank">获取帮助</a>
+                </label>
+                <div class="api-key-container">
+                    <div class="input-with-toggle">
+                        <input type="password" id="api-key-input" placeholder="请输入API密钥">
+                        <button id="toggle-api-key" class="toggle-btn" type="button" title="显示/隐藏">👁️</button>
+                    </div>
+                    <button id="test-connection" class="btn-secondary">测试连接</button>
+                </div>
             </div>
-        </div>
-        <div class="form-group">
-            <label data-i18n="modelSelectLabel"></label>
-            <p class="hint">
-                <span data-i18n="geminiModelHint"></span>
-                <a href="https://github.com/licon/llm-translate?tab=readme-ov-file#recommended-models" target="_blank" data-i18n="recommendedModelsLink"></a>
-            </p>
-            <select id="gemini-model-select"></select>
-        </div>
-    </div>
 
-    <!-- Silicon Flow Settings -->
-    <div id="siliconflow-settings" class="tab-content">
-        <div class="form-group">
-            <label for="siliconflow-api-key">
-                <span data-i18n="siliconflowApiKeyLabel"></span>
-                <a href="https://cloud.siliconflow.cn/me/account/ak" target="_blank" data-i18n="getApiKeyLink"></a>
-            </label>
-            <div class="api-key-container">
-                <input type="password" id="siliconflow-api-key" data-i18n-placeholder="siliconflowApiPlaceholder">
-                <button class="fetch-models-button btn-action" data-provider="siliconflow" data-i18n="fetchModelsButton"></button>
+            <!-- 服务器地址配置（用于本地部署） -->
+            <div class="form-group" id="server-url-group" style="display: none;">
+                <label for="server-url-input">
+                    <span id="server-url-label">服务器地址</span>
+                    <a href="#" id="server-url-help" target="_blank">获取帮助</a>
+                </label>
+                <div class="api-key-container">
+                    <input type="text" id="server-url-input" placeholder="http://localhost:11434">
+                    <button id="test-server" class="btn-secondary">测试连接</button>
+                </div>
             </div>
-        </div>
-        <div class="form-group">
-            <label data-i18n="modelSelectLabel"></label>
-            <p class="hint">
-                <span data-i18n="siliconflowModelHint"></span>
-                <a href="https://github.com/licon/llm-translate?tab=readme-ov-file#recommended-models" target="_blank" data-i18n="recommendedModelsLink"></a>
-            </p>
-            <select id="siliconflow-model-select"></select>
-        </div>
-    </div>
 
-    <!-- OpenRouter Settings -->
-    <div id="openrouter-settings" class="tab-content">
-        <div class="form-group">
-            <label for="openrouter-api-key">
-                <span data-i18n="openrouterApiKeyLabel"></span>
-                <a href="https://openrouter.ai/keys" target="_blank" data-i18n="getApiKeyLink"></a>
-            </label>
-            <div class="api-key-container">
-                <input type="password" id="openrouter-api-key" data-i18n-placeholder="openrouterApiPlaceholder">
-                <button class="fetch-models-button btn-action" data-provider="openrouter" data-i18n="fetchModelsButton"></button>
+            <!-- 模型选择 -->
+            <div class="form-group">
+                <label for="model-select">选择模型</label>
+                <div class="model-controls">
+                    <select id="model-select" disabled>
+                        <option>请先配置API密钥并获取模型列表</option>
+                    </select>
+                    <button id="fetch-models" class="btn-action" disabled>获取模型列表</button>
+                </div>
+                <p class="hint" id="model-hint">配置API密钥后点击"获取模型列表"按钮</p>
             </div>
-        </div>
-        <div class="form-group">
-            <label data-i18n="modelSelectLabel"></label>
-            <p class="hint">
-                <span data-i18n="openrouterModelHint"></span>
-                <a href="https://openrouter.ai/models" target="_blank" data-i18n="recommendedModelsLink"></a>
-            </p>
-            <select id="openrouter-model-select"></select>
-        </div>
-    </div>
 
-    <!-- Ollama Settings -->
-    <div id="ollama-settings" class="tab-content">
-        <div class="ollama-notice">
-            <p class="cors-hint" data-i18n="ollamaCorsHint"></p>
-        </div>
-        <div class="form-group">
-            <label for="ollama-url">
-                <span data-i18n="ollamaUrlLabel"></span>
-                <a href="https://ollama.com/" target="_blank" data-i18n="getOllamaLink"></a>
-            </label>
-            <div class="api-key-container">
-                <input type="text" id="ollama-url" data-i18n-placeholder="ollamaUrlPlaceholder">
-                <button class="fetch-models-button btn-action" data-provider="ollama" data-i18n="fetchModelsButton"></button>
+            <!-- 自定义模型选项 -->
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="custom-model-checkbox">
+                    <span>使用自定义模型</span>
+                </label>
+                <div id="custom-model-section" style="display: none;" class="custom-model-section">
+                    <input type="text" id="custom-model-input" placeholder="请输入自定义模型名称" class="custom-model-input">
+                    <p class="hint">某些提供商可能不支持远程获取模型列表，您可以在此手动输入模型名称</p>
+                </div>
             </div>
-        </div>
-        <div class="form-group">
-            <label data-i18n="modelSelectLabel"></label>
-            <p class="hint">
-                <span data-i18n="ollamaModelHint"></span>
-                <a href="https://github.com/licon/llm-translate?tab=readme-ov-file#recommended-models" target="_blank" data-i18n="recommendedModelsLink"></a>
-            </p>
-            <select id="ollama-model-select"></select>
+
+            <!-- 提供商特定设置 -->
+            <div id="provider-specific-settings" class="provider-specific"></div>
         </div>
     </div>
 
-    <!-- Target Language Settings -->
+    <!-- 目标语言设置 -->
     <div class="target-language-settings">
         <h2 data-i18n="targetLanguageSettingsTitle"></h2>
         
@@ -121,6 +116,11 @@
             <p class="hint" data-i18n="secondTargetLanguageHint"></p>
             <select id="second-target-language"></select>
         </div>
+    </div>
+
+    <!-- 保存按钮 -->
+    <div class="save-section">
+        <button id="save-settings-btn" class="btn-save">保存设置</button>
     </div>
 
     <div id="status"></div>

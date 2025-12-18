@@ -26,70 +26,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 // --- 事件监听 ---
 
-// 监听来自 background script 的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.type === 'contextMenuTranslate') {
-        handleContextMenuTranslation(request);
-    } else if (request.type === 'startScreenshotSelection') {
-        startScreenshotSelectionOverlay();
-    } else if (request.type === 'showImageTranslationResult') {
-        showImageTranslationResultPopover(request.translation || '', false);
-    }
-});
-
-// 显示/更新图片翻译结果弹窗；当 isLoading=true 时隐藏复制按钮并显示等待提示
-function showImageTranslationResultPopover(translation, isLoading) {
-    // 如果已存在弹窗，则仅更新内容
-    if (resultPopover && document.body.contains(resultPopover)) {
-        const resultText = resultPopover.querySelector('#llm-translate-result-text');
-        const copyBtn = resultPopover.querySelector('#llm-translate-copy-btn');
-        if (resultText) resultText.textContent = translation;
-        if (copyBtn) copyBtn.style.display = isLoading ? 'none' : 'inline-block';
-        return;
-    }
-
-    // 创建新的弹窗
-    resultPopover = document.createElement('div');
-    resultPopover.id = 'llm-translate-popover';
-    resultPopover.className = 'context-menu-popup';
-    resultPopover.innerHTML = `
-        <div class="llm-translate-header">
-            <span class="llm-translate-title">${chrome.i18n.getMessage('popupTitle')}</span>
-            <button class="llm-translate-close" id="llm-translate-close">×</button>
-        </div>
-        <div class="llm-translate-content">
-            <div class="llm-translate-result">
-                <div class="llm-translate-result-header">
-                    <strong>${chrome.i18n.getMessage('translationResult') || 'Translation'}:</strong>
-                    <button class="llm-translate-copy-btn" id="llm-translate-copy-btn" title="${chrome.i18n.getMessage('copyTranslation') || 'Copy translation'}">📋</button>
-                </div>
-                <div class="llm-translate-text" id="llm-translate-result-text"></div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(resultPopover);
-
-    const closeBtn = resultPopover.querySelector('#llm-translate-close');
-    const copyBtn = resultPopover.querySelector('#llm-translate-copy-btn');
-    const resultText = resultPopover.querySelector('#llm-translate-result-text');
-    resultText.textContent = translation;
-    copyBtn.style.display = isLoading ? 'none' : 'inline-block';
-
-    closeBtn.addEventListener('click', () => removeTranslationUI());
-    copyBtn.addEventListener('click', async () => {
-        try {
-            await navigator.clipboard.writeText(resultText.textContent || '');
-            const original = copyBtn.textContent;
-            copyBtn.textContent = '✅';
-            setTimeout(() => { copyBtn.textContent = original; }, 1200);
-        } catch (e) {
-            const original = copyBtn.textContent;
-            copyBtn.textContent = '❌';
-            setTimeout(() => { copyBtn.textContent = original; }, 1200);
-        }
-    });
-}
-
 // 监听鼠标抬起事件，用于显示翻译图标
 document.addEventListener('mouseup', (event) => {
     // 如果功能被禁用，则不执行任何操作
@@ -114,30 +50,7 @@ document.addEventListener('mouseup', (event) => {
 document.addEventListener('mousedown', (event) => {
     // 如果点击的不是我们的UI，则移除它
     if (!event.target.closest('#llm-translate-icon, #llm-translate-popover')) {
-        // 检查是否有翻译弹窗存在
-        const popover = document.querySelector('#llm-translate-popover');
-        if (popover && popover.classList.contains('context-menu-popup')) {
-            // 对于右键菜单弹窗，使用更严格的关闭条件
-            // 只有当用户点击页面其他地方且不是在选择文本时才关闭
-            setTimeout(() => {
-                const selection = window.getSelection();
-                const hasSelection = selection && selection.toString().trim().length > 0;
-                
-                // 检查是否在弹窗内有选中的文本
-                const isSelectingInPopover = hasSelection && 
-                    selection.anchorNode && 
-                    (selection.anchorNode.closest('#llm-translate-popover') ||
-                     (selection.anchorNode.parentNode && selection.anchorNode.parentNode.closest('#llm-translate-popover')));
-                
-                // 如果用户不是在弹窗内选择文本，且没有活跃的选择操作，则关闭弹窗
-                if (!isSelectingInPopover && !hasSelection) {
-                    removeTranslationUI();
-                }
-            }, 150);
-        } else {
-            // 对于普通的划词翻译图标，立即关闭
-            removeTranslationUI();
-        }
+        removeTranslationUI();
     }
 });
 
@@ -273,11 +186,43 @@ function showResultPopover(x, y, content) {
     if (!resultPopover) {
         resultPopover = document.createElement('div');
         resultPopover.id = 'llm-translate-popover';
+        resultPopover.innerHTML = `
+            <button class="llm-translate-copy-btn small" id="llm-translate-popover-copy" title="复制翻译">📋</button>
+            <div id="llm-translate-popover-content"></div>
+        `;
         document.body.appendChild(resultPopover);
+        
+        // 使普通浮窗可拖拽
+        makeDraggable(resultPopover);
+
+        // 阻止 mousedown 冒泡，防止触发全局关闭逻辑
+        resultPopover.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+
+        // 添加复制按钮事件
+        const copyBtn = resultPopover.querySelector('#llm-translate-popover-copy');
+        copyBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const contentDiv = resultPopover.querySelector('#llm-translate-popover-content');
+            const textToCopy = contentDiv.textContent;
+            
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '✅';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 1500);
+            } catch (err) {
+                console.error('复制失败:', err);
+            }
+        });
     }
     resultPopover.style.left = `${x + window.scrollX}px`;
     resultPopover.style.top = `${y + window.scrollY + 15}px`;
-    resultPopover.innerHTML = content;
+    resultPopover.querySelector('#llm-translate-popover-content').textContent = content;
     resultPopover.style.display = 'block';
 }
 
@@ -286,118 +231,82 @@ function showResultPopover(x, y, content) {
  */
 function updateResultPopover(content) {
     if (resultPopover) {
-        resultPopover.innerHTML = content;
+        const contentDiv = resultPopover.querySelector('#llm-translate-popover-content');
+        if (contentDiv) {
+            contentDiv.textContent = content;
+        }
     }
 }
 
-// 处理右键菜单翻译
-async function handleContextMenuTranslation(request) {
-    const { text, targetLanguage, secondTargetLanguage } = request;
-    
-    // 移除现有的UI
-    removeTranslationUI();
-    
-    // 显示翻译结果弹窗
-    showTranslationResult(text, targetLanguage, secondTargetLanguage);
-}
+/**
+ * 使元素可拖拽
+ */
+function makeDraggable(element, handle) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    handle = handle || element;
 
-// 显示翻译结果弹窗
-async function showTranslationResult(text, targetLanguage, secondTargetLanguage) {
-    // 创建结果弹窗
-    resultPopover = document.createElement('div');
-    resultPopover.id = 'llm-translate-popover';
-    resultPopover.className = 'context-menu-popup'; // 添加特殊类名用于样式
-    resultPopover.innerHTML = `
-        <div class="llm-translate-header">
-            <span class="llm-translate-title">${chrome.i18n.getMessage('popupTitle')}</span>
-            <button class="llm-translate-close" id="llm-translate-close">×</button>
-        </div>
-        <div class="llm-translate-content">
-            <div class="llm-translate-original">
-                <strong>${chrome.i18n.getMessage('originalText') || 'Original'}:</strong>
-                <div class="llm-translate-text">${text}</div>
-            </div>
-            <div class="llm-translate-result">
-                <div class="llm-translate-result-header">
-                    <strong>${chrome.i18n.getMessage('translationResult') || 'Translation'}:</strong>
-                    <button class="llm-translate-copy-btn" id="llm-translate-copy-btn" title="${chrome.i18n.getMessage('copyTranslation') || 'Copy translation'}" style="display: none;">📋</button>
-                </div>
-                <div class="llm-translate-text" id="llm-translate-result-text">${chrome.i18n.getMessage('statusTranslating') || 'Translating...'}</div>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(resultPopover);
-    
-    // 添加关闭按钮事件
-    const closeBtn = resultPopover.querySelector('#llm-translate-close');
-    closeBtn.addEventListener('click', () => {
-        removeTranslationUI();
-    });
-    
-    // 添加复制按钮事件
-    const copyBtn = resultPopover.querySelector('#llm-translate-copy-btn');
-    copyBtn.addEventListener('click', async () => {
-        const resultText = resultPopover.querySelector('#llm-translate-result-text');
-        const textToCopy = resultText.textContent;
-        
-        try {
-            await navigator.clipboard.writeText(textToCopy);
-            // 显示复制成功提示
-            const originalText = copyBtn.textContent;
-            copyBtn.textContent = '✅';
-            copyBtn.style.color = '#4caf50';
-            setTimeout(() => {
-                copyBtn.textContent = originalText;
-                copyBtn.style.color = '';
-            }, 1500);
-        } catch (error) {
-            console.error('复制失败:', error);
-            // 显示复制失败提示
-            const originalText = copyBtn.textContent;
-            copyBtn.textContent = '❌';
-            copyBtn.style.color = '#f44336';
-            setTimeout(() => {
-                copyBtn.textContent = originalText;
-                copyBtn.style.color = '';
-            }, 1500);
+    handle.addEventListener('mousedown', dragMouseDown);
+
+    function dragMouseDown(e) {
+        // 如果点击的是按钮、输入框或链接，不触发拖拽
+        if (e.target.tagName === 'BUTTON' || 
+            e.target.tagName === 'INPUT' || 
+            e.target.tagName === 'A' || 
+            e.target.classList.contains('llm-translate-close') ||
+            e.target.classList.contains('llm-translate-copy-btn')) {
+            return;
         }
-    });
-    
-    // 点击外部关闭（使用现有的 mousedown 监听器逻辑）
-    
-    // 发送翻译请求
-    try {
-        chrome.runtime.sendMessage({
-            type: 'translate',
-            text,
-            targetLanguage,
-            secondTargetLanguage
-        }, (response) => {
-            const resultText = resultPopover.querySelector('#llm-translate-result-text');
-            const copyBtn = resultPopover.querySelector('#llm-translate-copy-btn');
-            
-            if (response && response.translation) {
-                resultText.textContent = response.translation;
-                resultText.style.color = '#333';
-                // 翻译成功后显示复制按钮
-                copyBtn.style.display = 'inline-block';
-            } else if (response && response.error) {
-                resultText.textContent = `Error: ${response.error}`;
-                resultText.style.color = '#d32f2f';
-                // 翻译失败时隐藏复制按钮
-                copyBtn.style.display = 'none';
-            } else {
-                resultText.textContent = chrome.i18n.getMessage('statusError', ['Unknown error']) || 'Unknown error';
-                resultText.style.color = '#d32f2f';
-                // 翻译失败时隐藏复制按钮
-                copyBtn.style.display = 'none';
-            }
-        });
-    } catch (error) {
-        const resultText = resultPopover.querySelector('#llm-translate-result-text');
-        resultText.textContent = `Error: ${error.message}`;
-        resultText.style.color = '#d32f2f';
+
+        // 如果点击的是内容区域且不是 handle，则允许文本选择，不触发拖拽
+        if (handle !== element && !e.target.closest('.llm-translate-header') && !e.target.closest('.llm-translate-popover-header')) {
+            return;
+        }
+        
+        // 对于没有 handle 的情况（普通浮窗），我们只在点击非文本区域时触发拖拽
+        if (handle === element && e.target.id === 'llm-translate-popover-content') {
+            return;
+        }
+        
+        e.preventDefault();
+        e.stopPropagation(); // 阻止冒泡，防止触发全局关闭逻辑
+        
+        // 获取鼠标初始位置
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        document.addEventListener('mouseup', closeDragElement);
+        document.addEventListener('mousemove', elementDrag);
+        
+        element.classList.add('llm-translate-dragging');
+        
+        // 如果是 fixed 布局且有 transform，在开始拖拽时将其转换为具体的 top/left
+        const style = window.getComputedStyle(element);
+        if (style.position === 'fixed' && style.transform !== 'none') {
+            const rect = element.getBoundingClientRect();
+            element.style.transform = 'none';
+            element.style.top = rect.top + 'px';
+            element.style.left = rect.left + 'px';
+            element.style.margin = '0'; // 移除可能存在的 margin
+        }
+    }
+
+    function elementDrag(e) {
+        e.preventDefault();
+        // 计算偏移量
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        // 设置元素新位置
+        element.style.top = (element.offsetTop - pos2) + "px";
+        element.style.left = (element.offsetLeft - pos1) + "px";
+    }
+
+    function closeDragElement() {
+        document.removeEventListener('mouseup', closeDragElement);
+        document.removeEventListener('mousemove', elementDrag);
+        element.classList.remove('llm-translate-dragging');
     }
 }
 
@@ -413,127 +322,4 @@ function removeTranslationUI() {
         resultPopover.remove();
         resultPopover = null;
     }
-}
-
-// --- Screenshot selection overlay ---
-let selectionOverlay = null;
-let selectionRect = null;
-let isSelecting = false;
-
-function startScreenshotSelectionOverlay() {
-    if (selectionOverlay) return;
-
-    selectionOverlay = document.createElement('div');
-    selectionOverlay.id = 'llm-translate-screenshot-overlay';
-    selectionOverlay.style.cssText = `
-        position: fixed; inset: 0; z-index: 2147483646; cursor: crosshair;
-        background: rgba(0,0,0,0.15);
-    `;
-
-    const selectionBox = document.createElement('div');
-    selectionBox.id = 'llm-translate-selection-box';
-    selectionBox.style.cssText = `
-        position: absolute; border: 2px solid #4caf50; background: rgba(76,175,80,0.15);
-        pointer-events: none;
-    `;
-
-    const toolbar = document.createElement('div');
-    toolbar.id = 'llm-translate-selection-toolbar';
-    toolbar.style.cssText = `
-        position: absolute; padding: 6px 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none; gap: 8px; align-items: center;
-    `;
-
-    const translateBtn = document.createElement('button');
-    translateBtn.textContent = chrome.i18n.getMessage('selectionTranslateButton') || 'Translate';
-    translateBtn.style.cssText = 'padding: 4px 8px;';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = chrome.i18n.getMessage('cancelButton') || 'Cancel';
-    cancelBtn.style.cssText = 'padding: 4px 8px;';
-    toolbar.appendChild(translateBtn);
-    toolbar.appendChild(cancelBtn);
-
-    selectionOverlay.appendChild(selectionBox);
-    selectionOverlay.appendChild(toolbar);
-    document.body.appendChild(selectionOverlay);
-
-    let startX = 0, startY = 0;
-
-    function onMouseDown(e) {
-        // Ignore clicks on toolbar buttons
-        if (e.target.closest('#llm-translate-selection-toolbar')) return;
-        e.preventDefault();
-        isSelecting = true;
-        startX = e.clientX; startY = e.clientY;
-        selectionBox.style.left = `${startX}px`;
-        selectionBox.style.top = `${startY}px`;
-        selectionBox.style.width = '0px';
-        selectionBox.style.height = '0px';
-        selectionBox.style.display = 'block';
-        toolbar.style.display = 'none';
-    }
-    function onMouseMove(e) {
-        if (!isSelecting) return;
-        e.preventDefault();
-        const x = Math.min(e.clientX, startX);
-        const y = Math.min(e.clientY, startY);
-        const w = Math.abs(e.clientX - startX);
-        const h = Math.abs(e.clientY - startY);
-        selectionBox.style.left = `${x}px`;
-        selectionBox.style.top = `${y}px`;
-        selectionBox.style.width = `${w}px`;
-        selectionBox.style.height = `${h}px`;
-    }
-    function onMouseUp(e) {
-        if (!isSelecting) return;
-        isSelecting = false;
-        const rect = selectionBox.getBoundingClientRect();
-        selectionRect = { x: rect.left, y: rect.top, width: rect.width, height: rect.height, devicePixelRatio: window.devicePixelRatio || 1 };
-        if (rect.width < 5 || rect.height < 5) {
-            cleanup();
-            return;
-        }
-        // position toolbar near rect
-        toolbar.style.left = `${rect.left + rect.width - 140}px`;
-        toolbar.style.top = `${rect.top - 40}px`;
-        toolbar.style.display = 'flex';
-    }
-
-    function cleanup() {
-        selectionOverlay?.remove();
-        selectionOverlay = null;
-        selectionRect = null;
-        isSelecting = false;
-        window.removeEventListener('mousedown', onMouseDown, true);
-        window.removeEventListener('mousemove', onMouseMove, true);
-        window.removeEventListener('mouseup', onMouseUp, true);
-    }
-
-    cancelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); cleanup(); });
-    translateBtn.addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        if (!selectionRect) return;
-        // 先显示加载中的弹窗
-        const waitingText = chrome.i18n.getMessage('statusTranslating') || 'Translating...';
-        showImageTranslationResultPopover(waitingText, true);
-        // ask background to capture and crop
-        console.log('[LLM-Translate] Requesting captureAndTranslateImage', selectionRect);
-        chrome.runtime.sendMessage({ type: 'captureAndTranslateImage', rect: selectionRect }, (resp) => {
-            if (chrome.runtime.lastError) {
-                console.error('[LLM-Translate] captureAndTranslateImage error:', chrome.runtime.lastError.message);
-                showImageTranslationResultPopover(`Error: ${chrome.runtime.lastError.message}`, false);
-            } else if (resp && resp.error) {
-                console.error('[LLM-Translate] captureAndTranslateImage response error:', resp.error);
-                showImageTranslationResultPopover(`Error: ${resp.error}`, false);
-            } else {
-                console.log('[LLM-Translate] captureAndTranslateImage response ok');
-            }
-        });
-        cleanup();
-    });
-
-    // Attach to overlay instead of window to avoid interference with toolbar
-    selectionOverlay.addEventListener('mousedown', onMouseDown, true);
-    selectionOverlay.addEventListener('mousemove', onMouseMove, true);
-    selectionOverlay.addEventListener('mouseup', onMouseUp, true);
 }

@@ -34,12 +34,6 @@ textarea {
     box-sizing: border-box;
 }
 
-#speak-input-button {
-    position: absolute;
-    right: 5px;
-    top: 5px;
-}
-
 button {
     padding: 8px 12px;
     border: none;
@@ -76,7 +70,7 @@ button:hover {
     gap: 5px;
 }
 
-.speak-button {
+.copy-button {
     background: none;
     border: none;
     cursor: pointer;
@@ -85,7 +79,7 @@ button:hover {
     color: #555;
 }
 
-.speak-button:hover {
+.copy-button:hover {
     color: #000;
     background-color: #f0f0f0;
     border-radius: 50%;
@@ -223,4 +217,3 @@ input:checked + .slider:before {
 .slider.round:before {
     border-radius: 50%;
 }
-

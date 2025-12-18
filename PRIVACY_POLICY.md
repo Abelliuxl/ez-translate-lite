@@ -1,8 +1,8 @@
-# Privacy Policy for LLM-Translate
+# Privacy Policy for EZ Translate Lite
 
 **Last Updated:** July 23, 2025
 
-Thank you for using LLM-Translate. Your privacy is important to us. This privacy policy explains what information the extension handles and why.
+Thank you for using EZ Translate Lite. Your privacy is important to us. This privacy policy explains what information the extension handles and why.
 
 ### Our Commitment
 
@@ -40,4 +40,4 @@ We may update this privacy policy in the future. We will notify you of any chang
 
 ### Contact Us
 
-If you have any questions about this privacy policy, please contact us at [licon.ye@gmail.com].
+If you have any questions about this privacy policy, please contact us at [562503971@qq.com].

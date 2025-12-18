@@ -1,63 +1,63 @@
 {
     "appName": {
-        "message": "EZ Translate - Easy & Free AI Translator",
+        "message": "EZ Translate Lite",
         "description": "The name of the extension."
     },
     "appDescription": {
-        "message": "A free AI translation plugin using LLMs (e.g., Gemini) for on-page, popup, and screenshot translations.",
+        "message": "A simple LLM translation tool",
         "description": "The description of the extension."
     },
     "popupTitle": {
-        "message": "EZ Translate",
-        "description": "Title for the popup window."
+        "message": "EZ Translate Lite",
+        "description": "Title for popup window."
     },
     "textInputPlaceholder": {
         "message": "Enter text here...",
-        "description": "Placeholder for the text input area in the popup."
+        "description": "Placeholder for text input area in popup."
     },
     "translateButton": {
         "message": "Translate",
-        "description": "Label for the translate button."
+        "description": "Label for translate button."
     },
     "settingsLink": {
         "message": "Settings",
-        "description": "Link text to the settings page."
+        "description": "Link text to settings page."
     },
     "settingsTitle": {
         "message": "Settings",
-        "description": "Title for the settings page."
+        "description": "Title for settings page."
     },
     "geminiProvider": {
         "message": "Gemini",
-        "description": "Label for the Gemini provider tab."
+        "description": "Label for Gemini provider tab."
     },
     "siliconflowProvider": {
         "message": "Silicon Flow",
-        "description": "Label for the Silicon Flow provider tab."
+        "description": "Label for Silicon Flow provider tab."
     },
     "openrouterProvider": {
         "message": "OpenRouter",
-        "description": "Label for the OpenRouter provider tab."
+        "description": "Label for OpenRouter provider tab."
     },
     "ollamaProvider": {
         "message": "Ollama",
-        "description": "Label for the Ollama provider tab."
+        "description": "Label for Ollama provider tab."
     },
     "geminiApiKeyLabel": {
         "message": "Gemini API Key",
-        "description": "Label for the Gemini API key input."
+        "description": "Label for Gemini API key input."
     },
     "siliconflowApiKeyLabel": {
         "message": "Silicon Flow API Key",
-        "description": "Label for the Silicon Flow API key input."
+        "description": "Label for Silicon Flow API key input."
     },
     "openrouterApiKeyLabel": {
         "message": "OpenRouter API Key",
-        "description": "Label for the OpenRouter API key input."
+        "description": "Label for OpenRouter API key input."
     },
     "ollamaUrlLabel": {
         "message": "Ollama Server URL",
-        "description": "Label for the Ollama URL input."
+        "description": "Label for Ollama URL input."
     },
     "getApiKeyLink": {
         "message": "Get API Key",
@@ -69,27 +69,27 @@
     },
     "geminiApiPlaceholder": {
         "message": "Enter your Google AI Studio API key",
-        "description": "Placeholder for the Gemini API key input."
+        "description": "Placeholder for Gemini API key input."
     },
     "siliconflowApiPlaceholder": {
         "message": "Enter your Silicon Flow API key",
-        "description": "Placeholder for the Silicon Flow API key input."
+        "description": "Placeholder for Silicon Flow API key input."
     },
     "openrouterApiPlaceholder": {
         "message": "Enter your OpenRouter API key",
-        "description": "Placeholder for the OpenRouter API key input."
+        "description": "Placeholder for OpenRouter API key input."
     },
     "ollamaUrlPlaceholder": {
         "message": "Enter your Ollama server URL (e.g., http://localhost:11434)",
-        "description": "Placeholder for the Ollama URL input."
+        "description": "Placeholder for Ollama URL input."
     },
     "fetchModelsButton": {
         "message": "Fetch Models",
-        "description": "Label for the fetch models button."
+        "description": "Label for fetch models button."
     },
     "modelSelectLabel": {
         "message": "Select Model",
-        "description": "Label for the model selection dropdown."
+        "description": "Label for model selection dropdown."
     },
     "geminiModelHint": {
         "message": "Recommended to choose free models, e.g., gemma.",
@@ -542,29 +542,20 @@
     },
     "selectionTranslateLabel": {
         "message": "Enable In-Page Translation",
-        "description": "Label for the toggle switch to enable/disable in-page selection translation."
+        "description": "Label for toggle switch to enable/disable in-page selection translation."
     },
     "translationPrompt": {
-        "message": "Please translate the <Input> text into $targetLanguage$. If the <Input> text is already in $targetLanguage$, please translate it into $secondTargetLanguage$ instead. Please return the translation text directly, without any explanation, description, or extra text. Please return only one language at a time.\n\n<input>\n$text$\n</input>",
-        "description": "Prompt for the translation API.",
+        "message": "Please translate following text into $1$. If text is already in $1$, please translate it into $2$ instead. Please return the translation directly, without any explanation, description, or extra text. Please return only one language at a time.\n\nOriginal text:\n$3$",
+        "description": "Prompt for translation API.",
         "placeholders": {
-            "targetLanguage": {
-                "content": "$1",
-                "example": "Simplified Chinese"
-            },
-            "secondTargetLanguage": {
-                "content": "$2",
-                "example": "English"
-            },
-            "text": {
-                "content": "$3",
-                "example": "indie hacker"
-            }
+            "1": { "content": "$1" },
+            "2": { "content": "$2" },
+            "3": { "content": "$3" }
         }
     },
     "systemPrompt": {
-        "message": "Please translate the following text into $targetLanguage$. Please return the translation directly, without any explanation, description, or extra text.",
-        "description": "System prompt for the translation API.",
+        "message": "Please translate following text into $targetLanguage$. Please return translation directly, without any explanation, description, or extra text.",
+        "description": "System prompt for translation API.",
         "placeholders": {
             "targetLanguage": {
                 "content": "$1",
@@ -574,19 +565,19 @@
     },
     "targetLanguageSettingsTitle": {
         "message": "Target Language Settings",
-        "description": "Title for the target language settings section."
+        "description": "Title for target language settings section."
     },
     "defaultTargetLanguageLabel": {
         "message": "Default Target Language",
-        "description": "Label for the default target language selection."
+        "description": "Label for default target language selection."
     },
     "defaultTargetLanguageHint": {
-        "message": "This setting is synchronized with the popup page language setting.",
+        "message": "This setting is synchronized with popup page language setting.",
         "description": "Hint explaining the default target language setting."
     },
     "secondTargetLanguageLabel": {
         "message": "Second Target Language",
-        "description": "Label for the second target language selection."
+        "description": "Label for second target language selection."
     },
     "secondTargetLanguageHint": {
         "message": "Additional target language for quick switching.",
@@ -645,7 +636,7 @@
         "description": "Cancel button label."
     },
     "imageTranslationPrompt": {
-        "message": "Please read the text in the image and translate it into $targetLanguage$. If the text is already in $targetLanguage$, translate it into $secondTargetLanguage$ instead. Return only the translation without any explanations.",
+        "message": "Please read text in the image and translate it into $targetLanguage$. If the text is already in $targetLanguage$, translate it into $secondTargetLanguage$ instead. Return only the translation without any explanations.",
         "description": "Prompt for image OCR + translation.",
         "placeholders": {
             "targetLanguage": {
@@ -664,7 +655,7 @@
     },
     "githubSectionTitle": {
         "message": "🌟 Support & Feedback",
-        "description": "Title for the GitHub section in settings."
+        "description": "Title for GitHub section in settings."
     },
     "githubDescription": {
         "message": "Love this extension? Help us improve it by starring the project, forking it, or sharing your feedback!",
@@ -672,7 +663,7 @@
     },
     "visitGitHub": {
         "message": "⭐ Star on GitHub",
-        "description": "Button to visit the GitHub repository."
+        "description": "Button to visit GitHub repository."
     },
     "reportIssue": {
         "message": "🐛 Report Issue",

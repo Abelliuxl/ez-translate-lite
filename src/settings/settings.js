@@ -1,4 +1,735 @@
-// --- I18n Helper ---
+// --- 提供商配置 ---
+const PROVIDER_CONFIG = {
+    openai: {
+        name: 'OpenAI',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'OpenAI API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://platform.openai.com/api-keys',
+        modelsEndpoint: 'https://api.openai.com/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            m.id.includes('gpt') && !m.id.includes('realtime')
+        ),
+        apiFormat: 'openai'
+    },
+    anthropic: {
+        name: 'Anthropic Claude',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Anthropic API Key',
+        apiKeyPlaceholder: 'sk-ant-...',
+        apiKeyHelp: 'https://console.anthropic.com/',
+        modelsEndpoint: 'https://api.anthropic.com/v1/messages',
+        modelsFilter: null, // Claude有固定的模型列表
+        fixedModels: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+        apiFormat: 'anthropic'
+    },
+    google: {
+        name: 'Google AI',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Google AI API Key',
+        apiKeyPlaceholder: 'AIza...',
+        apiKeyHelp: 'https://aistudio.google.com/app/apikey',
+        modelsEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
+        modelsFilter: (models) => models.filter(m => 
+            m.supportedGenerationMethods.includes('generateContent')
+        ),
+        apiFormat: 'google'
+    },
+    microsoft: {
+        name: 'Microsoft Azure',
+        needApiKey: true,
+        needServerUrl: true,
+        apiKeyLabel: 'Azure API Key',
+        apiKeyPlaceholder: 'Your Azure API Key',
+        apiKeyHelp: 'https://portal.azure.com/',
+        serverUrlLabel: 'Azure Endpoint',
+        serverUrlPlaceholder: 'https://your-resource.openai.azure.com/',
+        serverUrlHelp: 'https://learn.microsoft.com/en-us/azure/ai-services/openai/',
+        modelsEndpoint: null, // 需要从 Azure 获取
+        apiFormat: 'azure'
+    },
+    openrouter: {
+        name: 'OpenRouter',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'OpenRouter API Key',
+        apiKeyPlaceholder: 'sk-or-...',
+        apiKeyHelp: 'https://openrouter.ai/keys',
+        modelsEndpoint: 'https://openrouter.ai/api/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('embedding') && 
+            !m.id.includes('rerank')
+        ),
+        apiFormat: 'openai'
+    },
+    siliconflow: {
+        name: '硅基流动',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'SiliconFlow API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://cloud.siliconflow.cn/me/account/ak',
+        modelsEndpoint: 'https://api.siliconflow.cn/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            m.id && (m.type === 'chat' || m.id.includes('chat'))
+        ),
+        apiFormat: 'openai'
+    },
+    together: {
+        name: 'Together AI',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Together API Key',
+        apiKeyPlaceholder: 'Your Together API Key',
+        apiKeyHelp: 'https://api.together.xyz/settings/api-keys',
+        modelsEndpoint: 'https://api.together.xyz/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('embedding')
+        ),
+        apiFormat: 'openai'
+    },
+    groq: {
+        name: 'Groq',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Groq API Key',
+        apiKeyPlaceholder: 'gsk_...',
+        apiKeyHelp: 'https://console.groq.com/keys',
+        modelsEndpoint: 'https://api.groq.com/openai/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('whisper')
+        ),
+        apiFormat: 'openai'
+    },
+    zhipuai: {
+        name: '智谱AI',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: '智谱API Key',
+        apiKeyPlaceholder: 'Your Zhipu API Key',
+        apiKeyHelp: 'https://open.bigmodel.cn/',
+        modelsEndpoint: 'https://open.bigmodel.cn/api/paas/v4/models',
+        modelsFilter: null,
+        fixedModels: ['glm-4', 'glm-4-plus', 'glm-4-flash', 'glm-4-air', 'glm-4-airx'],
+        apiFormat: 'zhipu'
+    },
+    moonshot: {
+        name: '月之暗面 Kimi',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Kimi API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://platform.moonshot.cn/console/api-keys',
+        modelsEndpoint: 'https://api.moonshot.cn/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('embedding')
+        ),
+        apiFormat: 'openai'
+    },
+    deepseek: {
+        name: '深度求索 DeepSeek',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'DeepSeek API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://platform.deepseek.com/api_keys',
+        modelsEndpoint: 'https://api.deepseek.com/v1/models',
+        modelsFilter: (models) => models.data,
+        apiFormat: 'openai'
+    },
+    qwen: {
+        name: '通义千问',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: '阿里云API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://bailian.console.aliyun.com/',
+        modelsEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('embedding')
+        ),
+        apiFormat: 'openai'
+    },
+    doubao: {
+        name: '字节跳动豆包',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: '豆包 API Key',
+        apiKeyPlaceholder: 'Your Doubao API Key',
+        apiKeyHelp: 'https://console.volcengine.com/ark/',
+        modelsEndpoint: 'https://ark.cn-beijing.volces.com/api/v3/models',
+        modelsFilter: (models) => models.data.filter(m => 
+            !m.id.includes('embedding')
+        ),
+        apiFormat: 'openai'
+    },
+    ollama: {
+        name: 'Ollama',
+        needApiKey: false,
+        needServerUrl: true,
+        serverUrlLabel: 'Ollama 服务器地址',
+        serverUrlPlaceholder: 'http://localhost:11434',
+        serverUrlHelp: 'https://ollama.com/',
+        modelsEndpoint: null, // 动态构建
+        modelsFilter: (models) => models,
+        apiFormat: 'ollama'
+    },
+    lmstudio: {
+        name: 'LM Studio',
+        needApiKey: false,
+        needServerUrl: true,
+        serverUrlLabel: 'LM Studio 服务器地址',
+        serverUrlPlaceholder: 'http://localhost:1234',
+        serverUrlHelp: 'https://lmstudio.ai/',
+        modelsEndpoint: 'http://localhost:1234/v1/models',
+        modelsFilter: (models) => models.data,
+        apiFormat: 'openai'
+    },
+    vllm: {
+        name: 'vLLM',
+        needApiKey: false,
+        needServerUrl: true,
+        serverUrlLabel: 'vLLM 服务器地址',
+        serverUrlPlaceholder: 'http://localhost:8000',
+        serverUrlHelp: 'https://github.com/vllm-project/vllm',
+        modelsEndpoint: 'http://localhost:8000/v1/models',
+        modelsFilter: (models) => models.data,
+        apiFormat: 'openai'
+    }
+};
+
+// --- 全局变量 ---
+let currentProvider = null;
+let currentSettings = {
+    apiKey: '',
+    serverUrl: '',
+    selectedModel: '',
+    useCustomModel: false,
+    customModel: ''
+};
+
+// --- DOM元素 ---
+const elements = {
+    providerSelect: document.getElementById('provider-select'),
+    providerConfig: document.getElementById('provider-config'),
+    apiKeyGroup: document.getElementById('api-key-group'),
+    serverUrlGroup: document.getElementById('server-url-group'),
+    apiKeyInput: document.getElementById('api-key-input'),
+    serverUrlInput: document.getElementById('server-url-input'),
+    apiKeyLabel: document.getElementById('api-key-label'),
+    serverUrlLabel: document.getElementById('server-url-label'),
+    apiKeyHelp: document.getElementById('api-key-help'),
+    serverUrlHelp: document.getElementById('server-url-help'),
+    testConnection: document.getElementById('test-connection'),
+    testServer: document.getElementById('test-server'),
+    modelSelect: document.getElementById('model-select'),
+    fetchModels: document.getElementById('fetch-models'),
+    modelHint: document.getElementById('model-hint'),
+    providerSpecific: document.getElementById('provider-specific-settings'),
+    toggleApiKey: document.getElementById('toggle-api-key'),
+    statusDiv: document.getElementById('status'),
+    defaultTargetLanguageSelect: document.getElementById('default-target-language'),
+    secondTargetLanguageSelect: document.getElementById('second-target-language'),
+    // 新增自定义模型相关元素
+    customModelCheckbox: document.getElementById('custom-model-checkbox'),
+    customModelSection: document.getElementById('custom-model-section'),
+    customModelInput: document.getElementById('custom-model-input'),
+    // 保存按钮
+    saveSettingsBtn: document.getElementById('save-settings-btn')
+};
+
+// --- 工具函数 ---
+function showStatus(message, type = 'info', duration = 3000) {
+    // 创建 Toast 容器（如果不存在）
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    // 创建 Toast 元素
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+
+    // 添加到容器
+    container.appendChild(toast);
+
+    // 触发动画
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    // 自动移除
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (toast.parentNode === container) {
+                container.removeChild(toast);
+            }
+            // 如果容器空了，移除容器
+            if (container.childNodes.length === 0) {
+                document.body.removeChild(container);
+            }
+        }, 300);
+    }, duration);
+}
+
+function saveProviderSettings() {
+    chrome.storage.local.get(['providerSettings'], (result) => {
+        const allSettings = result.providerSettings || {};
+        
+        // 保存当前供应商的特定设置
+        if (currentProvider) {
+            if (!allSettings.providers) allSettings.providers = {};
+            allSettings.providers[currentProvider] = {
+                apiKey: currentSettings.apiKey,
+                serverUrl: currentSettings.serverUrl,
+                selectedModel: currentSettings.selectedModel,
+                useCustomModel: currentSettings.useCustomModel,
+                customModel: currentSettings.customModel
+            };
+        }
+        
+        // 保存当前选中的供应商
+        allSettings.currentProvider = currentProvider;
+        
+        // 为了向后兼容，保留顶层字段（可选，但为了 background.js 方便）
+        allSettings.apiKey = currentSettings.apiKey;
+        allSettings.serverUrl = currentSettings.serverUrl;
+        allSettings.selectedModel = currentSettings.selectedModel;
+        allSettings.useCustomModel = currentSettings.useCustomModel;
+        allSettings.customModel = currentSettings.customModel;
+        
+        chrome.storage.local.set({ providerSettings: allSettings });
+    });
+}
+
+async function loadProviderSettings() {
+    const result = await chrome.storage.local.get(['providerSettings']);
+    if (result.providerSettings) {
+        const allSettings = result.providerSettings;
+        currentProvider = allSettings.currentProvider;
+        
+        if (currentProvider) {
+            elements.providerSelect.value = currentProvider;
+            
+            // 加载该供应商的特定设置
+            const providerData = (allSettings.providers && allSettings.providers[currentProvider]) || {};
+            currentSettings = {
+                apiKey: providerData.apiKey || '',
+                serverUrl: providerData.serverUrl || '',
+                selectedModel: providerData.selectedModel || '',
+                useCustomModel: providerData.useCustomModel || false,
+                customModel: providerData.customModel || ''
+            };
+            
+            await setupProviderConfig(currentProvider);
+        }
+    }
+}
+
+// --- 提供商配置 ---
+async function setupProviderConfig(providerId) {
+    const config = PROVIDER_CONFIG[providerId];
+    if (!config) return;
+
+    // 如果切换了供应商，先加载该供应商的设置
+    if (currentProvider !== providerId) {
+        currentProvider = providerId;
+        const result = await chrome.storage.local.get(['providerSettings']);
+        const allSettings = result.providerSettings || {};
+        const providerData = (allSettings.providers && allSettings.providers[providerId]) || {};
+        
+        currentSettings = {
+            apiKey: providerData.apiKey || '',
+            serverUrl: providerData.serverUrl || '',
+            selectedModel: providerData.selectedModel || '',
+            useCustomModel: providerData.useCustomModel || false,
+            customModel: providerData.customModel || ''
+        };
+    }
+
+    // 显示配置区域
+    elements.providerConfig.style.display = 'block';
+    
+    // 配置API密钥组
+    if (config.needApiKey) {
+        elements.apiKeyGroup.style.display = 'block';
+        elements.apiKeyLabel.textContent = config.apiKeyLabel;
+        elements.apiKeyInput.placeholder = config.apiKeyPlaceholder;
+        elements.apiKeyHelp.href = config.apiKeyHelp;
+        elements.apiKeyInput.value = currentSettings.apiKey;
+    } else {
+        elements.apiKeyGroup.style.display = 'none';
+    }
+    
+    // 配置服务器地址组
+    if (config.needServerUrl) {
+        elements.serverUrlGroup.style.display = 'block';
+        elements.serverUrlLabel.textContent = config.serverUrlLabel || '服务器地址';
+        elements.serverUrlInput.placeholder = config.serverUrlPlaceholder || 'http://localhost:11434';
+        elements.serverUrlHelp.href = config.serverUrlHelp || '#';
+        elements.serverUrlInput.value = currentSettings.serverUrl;
+        
+        // 更新测试按钮的文本
+        elements.testServer.textContent = `测试${config.name}连接`;
+    } else {
+        elements.serverUrlGroup.style.display = 'none';
+    }
+    
+    // 重置模型选择
+    elements.modelSelect.innerHTML = '<option>请先获取模型列表</option>';
+    elements.modelSelect.disabled = true;
+    elements.fetchModels.disabled = !hasValidCredentials();
+    
+    // 如果有固定的模型列表，直接填充
+    if (config.fixedModels) {
+        populateFixedModels(config.fixedModels);
+    }
+    
+    // 显示提供商特定提示
+    updateProviderSpecificHint(providerId);
+    
+    // 初始化自定义模型相关UI
+    elements.customModelCheckbox.checked = currentSettings.useCustomModel;
+    elements.customModelInput.value = currentSettings.customModel;
+    updateCustomModelUI();
+    
+    // 如果有保存的设置，尝试加载模型
+    if (hasValidCredentials() && currentSettings.selectedModel && !currentSettings.useCustomModel) {
+        await fetchModels();
+    }
+}
+
+function hasValidCredentials() {
+    const config = PROVIDER_CONFIG[currentProvider];
+    if (!config) return false;
+    
+    if (config.needApiKey && !currentSettings.apiKey.trim()) return false;
+    if (config.needServerUrl && !currentSettings.serverUrl.trim()) return false;
+    
+    return true;
+}
+
+function updateProviderSpecificHint(providerId) {
+    const config = PROVIDER_CONFIG[providerId];
+    let hint = '';
+    
+    if (providerId === 'ollama') {
+        hint = '⚠️ 使用 Ollama 前，请设置环境变量 OLLAMA_ORIGINS="*" 并重启 Ollama 服务以允许浏览器访问。';
+    } else if (providerId === 'lmstudio') {
+        hint = '请确保 LM Studio 正在运行并已加载模型。';
+    } else if (providerId === 'vllm') {
+        hint = '请确保 vLLM 服务器正在运行。';
+    }
+    
+    elements.modelHint.textContent = hint || config.apiKeyHelp ? '配置完成后点击"获取模型列表"按钮' : '';
+}
+
+function populateFixedModels(models) {
+    elements.modelSelect.innerHTML = '';
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        elements.modelSelect.appendChild(option);
+    });
+    
+    if (currentSettings.selectedModel) {
+        elements.modelSelect.value = currentSettings.selectedModel;
+    }
+    
+    elements.modelSelect.disabled = false;
+}
+
+// --- 自定义模型功能 ---
+function updateCustomModelUI() {
+    const isChecked = elements.customModelCheckbox.checked;
+    elements.customModelSection.style.display = isChecked ? 'block' : 'none';
+    
+    if (isChecked) {
+        // 启用自定义模型时，禁用模型选择和获取按钮
+        elements.modelSelect.disabled = true;
+        elements.fetchModels.disabled = true;
+        
+        // 如果有自定义模型名称，设置为选中状态
+        if (currentSettings.customModel) {
+            currentSettings.selectedModel = currentSettings.customModel;
+        }
+    } else {
+        // 禁用自定义模型时，恢复正常状态
+        elements.modelSelect.disabled = !elements.modelSelect.options.length || elements.modelSelect.options.length <= 1;
+        elements.fetchModels.disabled = !hasValidCredentials();
+        
+        // 清空自定义模型，恢复之前的选中模型
+        currentSettings.customModel = '';
+        elements.customModelInput.value = '';
+    }
+}
+
+// --- API调用 ---
+async function testConnection() {
+    const config = PROVIDER_CONFIG[currentProvider];
+    if (!config) return;
+    
+    if (!currentSettings.apiKey.trim()) {
+        showStatus('请输入 API 密钥后再进行测试', 'error');
+        return;
+    }
+    
+    try {
+        elements.testConnection.textContent = '测试中...';
+        elements.testConnection.disabled = true;
+        
+        let url = config.modelsEndpoint;
+        let options = {
+            method: 'GET',
+            headers: {},
+            credentials: 'omit'
+        };
+        
+        if (config.apiFormat === 'openai') {
+            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            if (url.includes('openrouter.ai')) {
+                options.headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
+                options.headers['X-Title'] = 'EZ Translate';
+            }
+        } else if (config.apiFormat === 'anthropic') {
+            options.method = 'POST';
+            options.headers['x-api-key'] = currentSettings.apiKey;
+            options.headers['anthropic-version'] = '2023-06-01';
+            options.headers['content-type'] = 'application/json';
+            options.body = JSON.stringify({
+                model: config.fixedModels ? config.fixedModels[0] : 'claude-3-haiku-20240307',
+                max_tokens: 1,
+                messages: [{ role: 'user', content: 'Hi' }]
+            });
+        } else if (config.apiFormat === 'google') {
+            url = `${url}?key=${currentSettings.apiKey}`;
+        } else if (config.apiFormat === 'zhipu') {
+            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+        }
+        
+        const response = await fetch(url, options);
+        
+        if (response.ok) {
+            // 进一步验证返回的内容是否为 JSON 且不包含错误
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error.message || 'API 返回了错误信息');
+            }
+            showStatus(`${config.name} 连接测试成功！`, 'success');
+        } else {
+            let errorMsg = 'API 密钥无效或请求失败';
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.error?.message || errorData.message || errorMsg;
+            } catch (e) {
+                // 无法解析 JSON 错误，使用默认消息
+            }
+            showStatus(`${config.name} 测试失败: ${errorMsg}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`连接测试失败: ${error.message}`, 'error');
+    } finally {
+        elements.testConnection.textContent = '测试连接';
+        elements.testConnection.disabled = false;
+    }
+}
+
+async function testServerConnection() {
+    const config = PROVIDER_CONFIG[currentProvider];
+    if (!config) return;
+    
+    try {
+        elements.testServer.textContent = '测试中...';
+        elements.testServer.disabled = true;
+        
+        let url = currentSettings.serverUrl;
+        if (currentProvider === 'ollama') {
+            url = `${url}/api/tags`;
+        } else if (config.apiFormat === 'openai') {
+            url = `${url}/v1/models`;
+        }
+        
+        const response = await fetch(url);
+        if (response.ok) {
+            showStatus(`${config.name} 服务器连接成功！`, 'success');
+            elements.fetchModels.disabled = false;
+        } else {
+            showStatus(`${config.name} 服务器连接失败，请检查地址`, 'error');
+        }
+    } catch (error) {
+        showStatus(`服务器连接失败: ${error.message}`, 'error');
+    } finally {
+        elements.testServer.textContent = '测试连接';
+        elements.testServer.disabled = false;
+    }
+}
+
+async function fetchModels() {
+    const config = PROVIDER_CONFIG[currentProvider];
+    if (!config) return;
+    
+    try {
+        elements.fetchModels.textContent = '获取中...';
+        elements.fetchModels.disabled = true;
+        elements.modelSelect.innerHTML = '<option>正在获取模型列表...</option>';
+        
+        let models = [];
+        
+        if (config.fixedModels) {
+            models = config.fixedModels;
+        } else if (currentProvider === 'ollama') {
+            const response = await fetch(`${currentSettings.serverUrl}/api/tags`);
+            if (!response.ok) throw new Error('Failed to fetch Ollama models');
+            const data = await response.json();
+            models = data.models.map(m => m.name);
+        } else if (config.modelsEndpoint) {
+            let url = config.modelsEndpoint;
+            let headers = {};
+            
+            if (config.apiFormat === 'openai' && config.needApiKey) {
+                headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+                
+                // OpenRouter 推荐添加这些 Header 以识别应用
+                if (url.includes('openrouter.ai')) {
+                    headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
+                    headers['X-Title'] = 'EZ Translate Extension';
+                }
+            } else if (config.apiFormat === 'google') {
+                url = `${url}?key=${currentSettings.apiKey}`;
+            } else if (config.apiFormat === 'anthropic') {
+                headers['x-api-key'] = currentSettings.apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+            }
+            
+            // 对于本地部署的服务器
+            if (config.needServerUrl && currentProvider !== 'ollama') {
+                url = `${currentSettings.serverUrl}/v1/models`;
+            }
+            
+            const response = await fetch(url, { 
+                headers,
+                credentials: 'omit'
+            });
+            if (!response.ok) throw new Error('Failed to fetch models');
+            const data = await response.json();
+            
+            if (config.modelsFilter) {
+                const filtered = config.modelsFilter(data);
+                models = Array.isArray(filtered) ? filtered.map(m => m.id || m.name || m) : filtered;
+            } else if (data.data) {
+                models = data.data.map(m => m.id || m.name || m);
+            } else if (data.models) {
+                models = data.models.map(m => m.name || m.id || m);
+            }
+        }
+        
+        // 填充模型选择器
+        elements.modelSelect.innerHTML = '';
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            elements.modelSelect.appendChild(option);
+        });
+        
+        // 恢复之前选择的模型
+        if (currentSettings.selectedModel && models.includes(currentSettings.selectedModel)) {
+            elements.modelSelect.value = currentSettings.selectedModel;
+        }
+        
+        elements.modelSelect.disabled = false;
+        showStatus(`成功获取 ${models.length} 个模型`, 'success');
+        
+    } catch (error) {
+        elements.modelSelect.innerHTML = '<option>获取模型失败</option>';
+        showStatus(`获取模型失败: ${error.message}`, 'error');
+    } finally {
+        elements.fetchModels.textContent = '获取模型列表';
+        elements.fetchModels.disabled = false;
+    }
+}
+
+// --- 语言设置 ---
+const languageKeys = [
+    "langEnglish", "langSimplifiedChinese", "langTraditionalChinese", "langFrench", "langSpanish", "langArabic", "langRussian", "langPortuguese", "langGerman", "langItalian", "langDutch", "langDanish", "langIrish", "langWelsh", "langFinnish", "langIcelandic", "langSwedish", "langNorwegianNynorsk", "langNorwegianBokmal", "langJapanese", "langKorean", "langVietnamese", "langThai", "langIndonesian", "langMalay", "langBurmese", "langTagalog", "langKhmer", "langLao", "langHindi", "langBengali", "langUrdu", "langNepali", "langHebrew", "langTurkish", "langPersian", "langPolish", "langUkrainian", "langCzech", "langRomanian", "langBulgarian", "langSlovak", "langHungarian", "langSlovenian", "langLatvian", "langEstonian", "langLithuanian", "langBelarusian", "langGreek", "langCroatian", "langMacedonian", "langMaltese", "langSerbian", "langBosnian", "langGeorgian", "langArmenian", "langNorthAzerbaijani", "langKazakh", "langNorthernUzbek", "langTajik", "langSwahili", "langAfrikaans", "langCantonese", "langLuxembourgish", "langLimburgish", "langCatalan", "langGalician", "langAsturian", "langBasque", "langOccitan", "langVenetian", "langSardinian", "langSicilian", "langFriulian", "langLombard", "langLigurian", "langFaroese", "langToskAlbanian", "langSilesian", "langBashkir", "langTatar", "langMesopotamianArabic", "langNajdiArabic", "langEgyptianArabic", "langLevantineArabic", "langTaizziAdeniArabic", "langDari", "langTunisianArabic", "langMoroccanArabic", "langKabuverdianu", "langTokPisin", "langEasternYiddish", "langSindhi", "langSinhala", "langTelugu", "langPunjabi", "langTamil", "langGujarati", "langMalayalam", "langMarathi", "langKannada", "langMagahi", "langOriya", "langAwadhi", "langMaithili", "langAssamese", "langChhattisgarhi", "langBhojpuri", "langMinangkabau", "langBalinese", "langJavanese", "langBanjar", "langSundanese", "langCebuano", "langPangasinan", "langIloko", "langWarayPhilippines", "langHaitian", "langPapiamento"
+];
+
+function populateLanguages() {
+    [elements.defaultTargetLanguageSelect, elements.secondTargetLanguageSelect].forEach(select => {
+        select.innerHTML = '';
+        languageKeys.forEach(key => {
+            const message = chrome.i18n.getMessage(key);
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = message;
+            select.appendChild(option);
+        });
+    });
+}
+
+function loadLanguageSettings() {
+    chrome.storage.local.get(['targetLanguage', 'secondTargetLanguage'], (result) => {
+        if (result.targetLanguage) {
+            elements.defaultTargetLanguageSelect.value = result.targetLanguage;
+        } else {
+            const browserLang = chrome.i18n.getUILanguage();
+            const defaultLangKey = getDefaultLanguageKey(browserLang);
+            elements.defaultTargetLanguageSelect.value = defaultLangKey;
+        }
+        
+        if (result.secondTargetLanguage) {
+            elements.secondTargetLanguageSelect.value = result.secondTargetLanguage;
+        } else {
+            const defaultLang = elements.defaultTargetLanguageSelect.value;
+            const secondLang = defaultLang === 'langSimplifiedChinese' ? 'langEnglish' : 'langSimplifiedChinese';
+            elements.secondTargetLanguageSelect.value = secondLang;
+        }
+    });
+}
+
+function getDefaultLanguageKey(browserLang) {
+    const browserLangToMsgKey = {
+        'en': 'langEnglish',
+        'zh': 'langSimplifiedChinese',
+        'zh-CN': 'langSimplifiedChinese',
+        'zh-TW': 'langTraditionalChinese',
+        'fr': 'langFrench',
+        'es': 'langSpanish',
+        'ar': 'langArabic',
+        'ru': 'langRussian',
+        'pt': 'langPortuguese',
+        'de': 'langGerman',
+        'it': 'langItalian',
+        'nl': 'langDutch',
+        'da': 'langDanish',
+        'ja': 'langJapanese',
+        'ko': 'langKorean',
+        'sv': 'langSwedish',
+        'no': 'langNorwegianBokmal',
+        'pl': 'langPolish',
+        'tr': 'langTurkish',
+        'fi': 'langFinnish',
+        'hu': 'langHungarian',
+        'cs': 'langCzech',
+        'el': 'langGreek',
+        'hi': 'langHindi',
+        'id': 'langIndonesian',
+        'th': 'langThai',
+        'vi': 'langVietnamese',
+        'ro': 'langRomanian',
+        'sk': 'langSlovak'
+    };
+    
+    return browserLangToMsgKey[browserLang] || browserLangToMsgKey[browserLang.split('-')[0]] || 'langEnglish';
+}
+
+// --- I18n ---
 function setupI18n() {
     document.querySelectorAll('[data-i18n]').forEach(elem => {
         const key = elem.getAttribute('data-i18n');
@@ -11,354 +742,126 @@ function setupI18n() {
     document.title = chrome.i18n.getMessage('settingsTitle');
 }
 
-// --- Language Data ---
-const languageKeys = [
-    "langEnglish", "langSimplifiedChinese", "langTraditionalChinese", "langFrench", "langSpanish", "langArabic", "langRussian", "langPortuguese", "langGerman", "langItalian", "langDutch", "langDanish", "langIrish", "langWelsh", "langFinnish", "langIcelandic", "langSwedish", "langNorwegianNynorsk", "langNorwegianBokmal", "langJapanese", "langKorean", "langVietnamese", "langThai", "langIndonesian", "langMalay", "langBurmese", "langTagalog", "langKhmer", "langLao", "langHindi", "langBengali", "langUrdu", "langNepali", "langHebrew", "langTurkish", "langPersian", "langPolish", "langUkrainian", "langCzech", "langRomanian", "langBulgarian", "langSlovak", "langHungarian", "langSlovenian", "langLatvian", "langEstonian", "langLithuanian", "langBelarusian", "langGreek", "langCroatian", "langMacedonian", "langMaltese", "langSerbian", "langBosnian", "langGeorgian", "langArmenian", "langNorthAzerbaijani", "langKazakh", "langNorthernUzbek", "langTajik", "langSwahili", "langAfrikaans", "langCantonese", "langLuxembourgish", "langLimburgish", "langCatalan", "langGalician", "langAsturian", "langBasque", "langOccitan", "langVenetian", "langSardinian", "langSicilian", "langFriulian", "langLombard", "langLigurian", "langFaroese", "langToskAlbanian", "langSilesian", "langBashkir", "langTatar", "langMesopotamianArabic", "langNajdiArabic", "langEgyptianArabic", "langLevantineArabic", "langTaizziAdeniArabic", "langDari", "langTunisianArabic", "langMoroccanArabic", "langKabuverdianu", "langTokPisin", "langEasternYiddish", "langSindhi", "langSinhala", "langTelugu", "langPunjabi", "langTamil", "langGujarati", "langMalayalam", "langMarathi", "langKannada", "langMagahi", "langOriya", "langAwadhi", "langMaithili", "langAssamese", "langChhattisgarhi", "langBhojpuri", "langMinangkabau", "langBalinese", "langJavanese", "langBanjar", "langSundanese", "langCebuano", "langPangasinan", "langIloko", "langWarayPhilippines", "langHaitian", "langPapiamento"
-];
-
-function populateLanguages() {
-    const defaultTargetLanguageSelect = document.getElementById('default-target-language');
-    const secondTargetLanguageSelect = document.getElementById('second-target-language');
+// --- 事件监听器 ---
+function setupEventListeners() {
+    // 提供商选择
+    elements.providerSelect.addEventListener('change', async (e) => {
+        const providerId = e.target.value;
+        if (providerId) {
+            await setupProviderConfig(providerId);
+        } else {
+            elements.providerConfig.style.display = 'none';
+        }
+    });
     
-    // Clear existing options
-    defaultTargetLanguageSelect.innerHTML = '';
-    secondTargetLanguageSelect.innerHTML = '';
+    // API密钥输入
+    elements.apiKeyInput.addEventListener('input', (e) => {
+        currentSettings.apiKey = e.target.value;
+        elements.fetchModels.disabled = !hasValidCredentials();
+        saveProviderSettings();
+    });
+    
+    // 服务器地址输入
+    elements.serverUrlInput.addEventListener('input', (e) => {
+        currentSettings.serverUrl = e.target.value;
+        elements.fetchModels.disabled = !hasValidCredentials();
+        saveProviderSettings();
+    });
+    
+    // 测试连接
+    elements.testConnection.addEventListener('click', testConnection);
+    elements.testServer.addEventListener('click', testServerConnection);
 
-    languageKeys.forEach(key => {
-        const message = chrome.i18n.getMessage(key);
-        
-        // Add to default target language select
-        const defaultOption = document.createElement('option');
-        defaultOption.value = key;
-        defaultOption.textContent = message;
-        defaultTargetLanguageSelect.appendChild(defaultOption);
-        
-        // Add to second target language select
-        const secondOption = document.createElement('option');
-        secondOption.value = key;
-        secondOption.textContent = message;
-        secondTargetLanguageSelect.appendChild(secondOption);
+    // 切换API密钥显示/隐藏
+    elements.toggleApiKey.addEventListener('click', () => {
+        const type = elements.apiKeyInput.type === 'password' ? 'text' : 'password';
+        elements.apiKeyInput.type = type;
+        elements.toggleApiKey.textContent = type === 'password' ? '👁️' : '🔒';
+    });
+    
+    // 获取模型
+    elements.fetchModels.addEventListener('click', fetchModels);
+    
+    // 模型选择
+    elements.modelSelect.addEventListener('change', (e) => {
+        currentSettings.selectedModel = e.target.value;
+        saveProviderSettings();
+        showStatus(`已选择模型: ${e.target.value}`, 'success');
+    });
+    
+    // 语言设置
+    elements.defaultTargetLanguageSelect.addEventListener('change', (e) => {
+        chrome.storage.local.set({ targetLanguage: e.target.value });
+        showStatus(`默认目标语言已设置`, 'success');
+    });
+    
+    elements.secondTargetLanguageSelect.addEventListener('change', (e) => {
+        chrome.storage.local.set({ secondTargetLanguage: e.target.value });
+        showStatus(`第二目标语言已设置`, 'success');
+    });
+    
+    // 自定义模型勾选框
+    elements.customModelCheckbox.addEventListener('change', (e) => {
+        currentSettings.useCustomModel = e.target.checked;
+        updateCustomModelUI();
+        saveProviderSettings();
+    });
+    
+    // 自定义模型输入
+    elements.customModelInput.addEventListener('input', (e) => {
+        currentSettings.customModel = e.target.value;
+        if (currentSettings.useCustomModel) {
+            currentSettings.selectedModel = e.target.value;
+        }
+        saveProviderSettings();
+    });
+    
+    // 保存按钮
+    elements.saveSettingsBtn.addEventListener('click', () => {
+        saveAllSettings();
     });
 }
 
-// --- Main Logic ---
-document.addEventListener('DOMContentLoaded', () => {
-    setupI18n();
-
-    const state = { activeProvider: 'gemini' };
-    const elements = {
-        tabs: document.querySelectorAll('.tab-button'),
-        tabContents: document.querySelectorAll('.tab-content'),
-        statusDiv: document.getElementById('status'),
-        providers: {
-            gemini: {
-                apiKeyInput: document.getElementById('gemini-api-key'),
-                modelSelect: document.getElementById('gemini-model-select'),
-                fetchButton: document.querySelector('.fetch-models-button[data-provider="gemini"]'),
-            },
-            siliconflow: {
-                apiKeyInput: document.getElementById('siliconflow-api-key'),
-                modelSelect: document.getElementById('siliconflow-model-select'),
-                fetchButton: document.querySelector('.fetch-models-button[data-provider="siliconflow"]'),
-            },
-            openrouter: {
-                apiKeyInput: document.getElementById('openrouter-api-key'),
-                modelSelect: document.getElementById('openrouter-model-select'),
-                fetchButton: document.querySelector('.fetch-models-button[data-provider="openrouter"]'),
-            },
-            ollama: {
-                apiKeyInput: document.getElementById('ollama-url'),
-                modelSelect: document.getElementById('ollama-model-select'),
-                fetchButton: document.querySelector('.fetch-models-button[data-provider="ollama"]'),
-            },
-        },
-        targetLanguages: {
-            defaultTargetLanguageSelect: document.getElementById('default-target-language'),
-            secondTargetLanguageSelect: document.getElementById('second-target-language'),
-        },
-    };
-
-    function switchTab(providerName) {
-        state.activeProvider = providerName;
-        elements.tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.provider === providerName));
-        elements.tabContents.forEach(content => content.classList.toggle('active', content.id === `${providerName}-settings`));
-        chrome.storage.local.set({ activeProvider: providerName });
-        showStatus(chrome.i18n.getMessage('statusProviderSwitched', [providerName]), 'info', 1500);
-    }
-
-    async function handleFetchModels(providerName) {
-        const { apiKeyInput } = elements.providers[providerName];
-        const inputValue = apiKeyInput.value;
-        if (!inputValue) {
-            const errorMsg = providerName === 'ollama' ? 
-                chrome.i18n.getMessage('statusOllamaUrlNeeded') : 
-                chrome.i18n.getMessage('statusApiKeyNeeded');
-            showStatus(errorMsg, 'error');
-            return;
-        }
+// --- 保存所有设置 ---
+function saveAllSettings() {
+    try {
+        // 保存提供商设置
+        saveProviderSettings();
         
-        if (providerName === 'ollama') {
-            chrome.storage.local.set({ [`${providerName}Url`]: inputValue }, () => {
-                showStatus(chrome.i18n.getMessage('statusOllamaUrlSaved'), 'info');
-            });
-            await fetchOllamaModels(inputValue);
-        } else {
-            chrome.storage.local.set({ [`${providerName}ApiKey`]: inputValue }, () => {
-                showStatus(chrome.i18n.getMessage('statusApiKeySaved'), 'info');
-            });
-            if (providerName === 'gemini') await fetchGeminiModels(inputValue);
-            else if (providerName === 'siliconflow') await fetchSiliconFlowModels(inputValue);
-            else if (providerName === 'openrouter') await fetchOpenRouterModels(inputValue);
-        }
-    }
-
-    async function fetchGeminiModels(apiKey) {
-        const modelSelect = elements.providers.gemini.modelSelect;
-        modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusFetchingModels')}</option>`;
-        try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-            if (!response.ok) throw new Error((await response.json()).error.message);
-            const data = await response.json();
-            const supportedModels = data.models.filter(m => m.supportedGenerationMethods.includes('generateContent'));
-            populateModelSelect(modelSelect, supportedModels, m => m.name.replace('models/', ''), m => `${m.displayName} (${m.name.replace('models/', '')})`);
-            showStatus(chrome.i18n.getMessage('statusModelsSuccess'), 'success');
-            loadSelectedModel('gemini');
-        } catch (error) {
-            modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusModelsFailed', [error.message])}</option>`;
-            showStatus(chrome.i18n.getMessage('statusModelsFailed', [error.message]), 'error');
-        }
-    }
-
-    async function fetchSiliconFlowModels(apiKey) {
-        const modelSelect = elements.providers.siliconflow.modelSelect;
-        modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusFetchingModels')}</option>`;
-        try {
-            const response = await fetch('https://api.siliconflow.cn/v1/models?type=text&sub_type=chat', { headers: { 'Authorization': `Bearer ${apiKey}` } });
-            if (!response.ok) throw new Error((await response.json()).error.message);
-            const data = await response.json();
-            populateModelSelect(modelSelect, data.data, m => m.id, m => m.id);
-            showStatus(chrome.i18n.getMessage('statusModelsSuccess'), 'success');
-            loadSelectedModel('siliconflow');
-        } catch (error) {
-            modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusModelsFailed', [error.message])}</option>`;
-            showStatus(chrome.i18n.getMessage('statusModelsFailed', [error.message]), 'error');
-        }
-    }
-
-    async function fetchOpenRouterModels(apiKey) {
-        const modelSelect = elements.providers.openrouter.modelSelect;
-        modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusFetchingModels')}</option>`;
-        try {
-            const response = await fetch('https://openrouter.ai/api/v1/models', {
-                headers: { 
-                    'Authorization': `Bearer ${apiKey}`,
-                    'HTTP-Referer': 'https://github.com/licon/llm-translate',
-                    'X-Title': 'LLM Translate Extension'
-                }
-            });
-            if (!response.ok) throw new Error((await response.json()).error?.message || 'Failed to fetch models');
-            const data = await response.json();
-            // Filter for free models that support image input and sort by name
-            const chatModels = data.data.filter(m => 
-                m.id && 
-                m.name && 
-                !m.id.includes('embedding') && 
-                !m.id.includes('rerank') &&
-                m.name.toLowerCase().includes('free') &&
-                m.architecture && 
-                m.architecture.input_modalities && 
-                m.architecture.input_modalities.includes('image')
-            ).sort((a, b) => a.name.localeCompare(b.name));
-            populateModelSelect(modelSelect, chatModels, m => m.id, m => `${m.name} (${m.id})`);
-            showStatus(chrome.i18n.getMessage('statusModelsSuccess'), 'success');
-            loadSelectedModel('openrouter');
-        } catch (error) {
-            modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusModelsFailed', [error.message])}</option>`;
-            showStatus(chrome.i18n.getMessage('statusModelsFailed', [error.message]), 'error');
-        }
-    }
-
-    async function fetchOllamaModels(ollamaUrl) {
-        const modelSelect = elements.providers.ollama.modelSelect;
-        modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusFetchingModels')}</option>`;
-        try {
-            const response = await fetch(`${ollamaUrl}/api/tags`);
-            if (!response.ok) throw new Error('Failed to connect to Ollama server');
-            const data = await response.json();
-
-            populateModelSelect(modelSelect, data.models, m => m.name, m => `${m.name} (${(m.size / 1024 / 1024 / 1024).toFixed(1)}GB)`);
-            showStatus(chrome.i18n.getMessage('statusModelsSuccess'), 'success');
-            loadSelectedModel('ollama');
-            
-            // If no model was previously selected and we have models, auto-save the first one
-            if (data.models.length > 0 && modelSelect.value) {
-                saveSelectedModel('ollama');
-            }
-        } catch (error) {
-            modelSelect.innerHTML = `<option>${chrome.i18n.getMessage('statusModelsFailed', [error.message])}</option>`;
-            showStatus(chrome.i18n.getMessage('statusModelsFailed', [error.message]), 'error');
-        }
-    }
-
-    function populateModelSelect(selectElement, models, valueFn, textFn) {
-        selectElement.innerHTML = '';
-        if (models.length === 0) {
-            selectElement.innerHTML = '<option>No models available</option>'; // Fallback
-            return;
-        }
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = valueFn(model);
-            option.textContent = textFn(model);
-            selectElement.appendChild(option);
+        // 保存语言设置
+        const targetLanguage = elements.defaultTargetLanguageSelect.value;
+        const secondTargetLanguage = elements.secondTargetLanguageSelect.value;
+        
+        chrome.storage.local.set({ 
+            targetLanguage, 
+            secondTargetLanguage 
         });
         
-        // Auto-select the first model if no model is currently selected
-        if (models.length > 0 && !selectElement.value) {
-            selectElement.value = valueFn(models[0]);
-        }
-    }
-
-    function saveSelectedModel(providerName) {
-        const { modelSelect } = elements.providers[providerName];
-        if (modelSelect.value) {
-            const key = `${providerName}SelectedModel`;
-            chrome.storage.local.set({ [key]: modelSelect.value }, () => {
-                showStatus(chrome.i18n.getMessage('statusModelSaved', [modelSelect.value]), 'success');
-            });
-        }
-    }
-
-    function loadAllSettings() {
-        const keys = ['activeProvider', 'geminiApiKey', 'siliconflowApiKey', 'openrouterApiKey', 'ollamaUrl', 'geminiSelectedModel', 'siliconflowSelectedModel', 'openrouterSelectedModel', 'ollamaSelectedModel', 'targetLanguage', 'secondTargetLanguage'];
-        chrome.storage.local.get(keys, (result) => {
-            if (result.activeProvider) switchTab(result.activeProvider);
-            if (result.geminiApiKey) {
-                elements.providers.gemini.apiKeyInput.value = result.geminiApiKey;
-                fetchGeminiModels(result.geminiApiKey);
-            }
-            if (result.siliconflowApiKey) {
-                elements.providers.siliconflow.apiKeyInput.value = result.siliconflowApiKey;
-                fetchSiliconFlowModels(result.siliconflowApiKey);
-            }
-            if (result.openrouterApiKey) {
-                elements.providers.openrouter.apiKeyInput.value = result.openrouterApiKey;
-                fetchOpenRouterModels(result.openrouterApiKey);
-            }
-            if (result.ollamaUrl) {
-                elements.providers.ollama.apiKeyInput.value = result.ollamaUrl;
-                fetchOllamaModels(result.ollamaUrl);
-            } else {
-                // Set default Ollama URL if not set
-                elements.providers.ollama.apiKeyInput.value = 'http://localhost:11434';
-            }
-            
-            // Load target language settings
-            loadTargetLanguageSettings(result);
-        });
-    }
-    
-    function loadTargetLanguageSettings(result) {
-        // Set default target language (synchronized with popup)
-        if (result.targetLanguage) {
-            elements.targetLanguages.defaultTargetLanguageSelect.value = result.targetLanguage;
-        } else {
-            // Set default based on browser language
-            const browserLang = chrome.i18n.getUILanguage();
-            const langCode = browserLang.split('-')[0];
-            const defaultLangKey = getDefaultLanguageKey(browserLang, langCode);
-            elements.targetLanguages.defaultTargetLanguageSelect.value = defaultLangKey;
-            chrome.storage.local.set({ targetLanguage: defaultLangKey });
-        }
+        showStatus('所有设置已保存成功！', 'success', 3000);
         
-        // Set second target language
-        if (result.secondTargetLanguage) {
-            elements.targetLanguages.secondTargetLanguageSelect.value = result.secondTargetLanguage;
-        } else {
-            // Set a default second language (e.g., English if default is Chinese, vice versa)
-            const defaultLang = elements.targetLanguages.defaultTargetLanguageSelect.value;
-            const secondLang = defaultLang === 'langSimplifiedChinese' ? 'langEnglish' : 'langSimplifiedChinese';
-            elements.targetLanguages.secondTargetLanguageSelect.value = secondLang;
-            chrome.storage.local.set({ secondTargetLanguage: secondLang });
-        }
-    }
-    
-    function getDefaultLanguageKey(browserLang, langCode) {
-        const browserLangToMsgKey = {
-            'en': 'langEnglish',
-            'zh': 'langSimplifiedChinese',
-            'zh-CN': 'langSimplifiedChinese',
-            'zh-TW': 'langTraditionalChinese',
-            'fr': 'langFrench',
-            'es': 'langSpanish',
-            'ar': 'langArabic',
-            'ru': 'langRussian',
-            'pt': 'langPortuguese',
-            'de': 'langGerman',
-            'it': 'langItalian',
-            'nl': 'langDutch',
-            'da': 'langDanish',
-            'ja': 'langJapanese',
-            'ko': 'langKorean',
-            'sv': 'langSwedish',
-            'no': 'langNorwegianBokmal',
-            'pl': 'langPolish',
-            'tr': 'langTurkish',
-            'fi': 'langFinnish',
-            'hu': 'langHungarian',
-            'cs': 'langCzech',
-            'el': 'langGreek',
-            'hi': 'langHindi',
-            'id': 'langIndonesian',
-            'th': 'langThai',
-            'vi': 'langVietnamese',
-            'ro': 'langRomanian',
-            'sk': 'langSlovak'
-        };
+        // 添加保存成功的视觉反馈
+        const originalText = elements.saveSettingsBtn.textContent;
+        elements.saveSettingsBtn.textContent = '✓ 已保存';
+        elements.saveSettingsBtn.style.backgroundColor = '#218838';
         
-        return browserLangToMsgKey[browserLang] || browserLangToMsgKey[langCode] || 'langEnglish';
-    }
-    
-    function loadSelectedModel(providerName) {
-        chrome.storage.local.get([`${providerName}SelectedModel`], (result) => {
-            const model = result[`${providerName}SelectedModel`];
-            const { modelSelect } = elements.providers[providerName];
-            if (model && [...modelSelect.options].some(opt => opt.value === model)) {
-                modelSelect.value = model;
-            }
-        });
-    }
-
-    function showStatus(message, type = 'info', duration = 3000) {
-        const colorMap = { 'info': '#007bff', 'success': 'green', 'error': 'red' };
-        elements.statusDiv.textContent = message;
-        elements.statusDiv.style.color = colorMap[type] || 'black';
         setTimeout(() => {
-            if (elements.statusDiv.textContent === message) elements.statusDiv.textContent = '';
-        }, duration);
+            elements.saveSettingsBtn.textContent = originalText;
+            elements.saveSettingsBtn.style.backgroundColor = '';
+        }, 2000);
+        
+    } catch (error) {
+        showStatus(`保存设置失败: ${error.message}`, 'error');
     }
+}
 
-    elements.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.provider)));
-    for (const providerName in elements.providers) {
-        elements.providers[providerName].fetchButton.addEventListener('click', () => handleFetchModels(providerName));
-        elements.providers[providerName].modelSelect.addEventListener('change', () => saveSelectedModel(providerName));
-    }
-    
-    // Add event listeners for target language settings
-    elements.targetLanguages.defaultTargetLanguageSelect.addEventListener('change', () => {
-        const value = elements.targetLanguages.defaultTargetLanguageSelect.value;
-        chrome.storage.local.set({ targetLanguage: value }, () => {
-            showStatus(chrome.i18n.getMessage('statusModelSaved', [chrome.i18n.getMessage(value)]), 'success');
-        });
-    });
-    
-    elements.targetLanguages.secondTargetLanguageSelect.addEventListener('change', () => {
-        const value = elements.targetLanguages.secondTargetLanguageSelect.value;
-        chrome.storage.local.set({ secondTargetLanguage: value }, () => {
-            showStatus(chrome.i18n.getMessage('statusModelSaved', [chrome.i18n.getMessage(value)]), 'success');
-        });
-    });
-
-    loadAllSettings();
+// --- 初始化 ---
+async function initialize() {
+    setupI18n();
     populateLanguages();
-});
+    loadLanguageSettings();
+    await loadProviderSettings();
+    setupEventListeners();
+}
+
+// 启动应用
+document.addEventListener('DOMContentLoaded', initialize);
