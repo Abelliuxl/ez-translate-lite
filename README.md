@@ -1,134 +1,66 @@
 <div align="center">
   <img src="icons/icon128.png" alt="EZ Translate Lite Logo" width="128" height="128">
-  <h1>EZ Translate Lite: Smart Browser Translation Plugin</h1>
+  <h1>EZ Translate Lite: Lightweight Browser Translation Plugin</h1>
+  <p><em>Forked from <a href="https://github.com/licon/ez-translate">licon/ez-translate</a> with significant simplifications and improvements</em></p>
 </div>
 
-EZ Translate Lite is a modern browser translation plugin that harnesses the power of Large Language Models (LLMs) to provide you with a more accurate, fluent, and context-aware web page translation experience.
+EZ Translate Lite is a lightweight browser translation plugin that leverages Large Language Models (LLMs) to provide accurate and context-aware translation experience. This version is a fork of the original EZ Translate project, simplified and optimized for better usability.
 
-Unlike traditional machine translation, this plugin aims to understand the nuances of language through advanced AI technology, generating high-quality translations to help you easily overcome language barriers and efficiently access global information.
+**Note: This is a simplified fork** - We've removed several complex features to create a more focused, lightweight translation tool while maintaining core functionality.
+
+## About This Fork
+
+This project is forked from [licon/ez-translate](https://github.com/licon/ez-translate) with the following major changes:
+
+### 🗑️ **Removed Features (Simplification)**
+- **Fixed provider restrictions**: Removed hardcoded support for specific providers (Gemini, SiliconFlow, OpenRouter)
+- **Voice/speech functionality**: Removed text-to-speech features
+- **Right-click context menu translation**: Simplified the translation flow
+- **Screenshot/Image translation**: Removed image-based translation capabilities
+- **Complex provider-specific configurations**: Streamlined settings
+
+### ✅ **Enhanced Features**
+- **Flexible provider support**: Now supports any LLM provider with customizable API endpoints
+- **Draggable translation popup**: Translation window can be moved around the screen
+- **Direct text copying**: Text in translation results can be selected and copied directly
+- **Simplified UI**: Cleaner, more focused user interface
+- **Lightweight design**: Reduced extension size and complexity
+
+### 🎯 **Core Philosophy**
+This fork prioritizes simplicity and usability over feature completeness. The goal is to provide a fast, reliable translation tool that works with any LLM provider without unnecessary complexity.
 
 [查看中文版本 (View Chinese Version)](README_zh.md)
 
-## Supported LLM Providers
+## Installation
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" width="200" height="200">
-        <a href="https://ai.google.dev/" target="_blank">
-          <img src="logos/google-gemini.png" alt="Google Gemini" width="200"><br>
-          <strong>Google Gemini</strong><br>
-          <small>Advanced AI model by Google</small>
-        </a>
-      </td>
-      <td align="center" width="200" height="200">
-        <a href="https://cloud.siliconflow.cn/" target="_blank">
-          <img src="logos/siliconflow.png" alt="Silicon Flow" width="200"><br>
-          <strong>Silicon Flow</strong><br>
-          <small>Chinese AI platform</small>
-        </a>
-      </td>
-      <td align="center"  width="200" height="200">
-        <a href="https://openrouter.ai/" target="_blank">
-          <img src="logos/openrouter.png" alt="OpenRouter" width="200"><br>
-          <strong>OpenRouter</strong><br>
-          <small>Unified AI model access</small>
-        </a>
-      </td>
-      <td align="center" width="200" height="200">
-        <a href="https://ollama.ai/" target="_blank">
-          <img src="logos/ollama_logo.png" alt="Ollama" width="200"><br>
-          <strong>Ollama</strong><br>
-          <small>Local AI deployment</small>
-        </a>
-      </td>
-    </tr>
-  </table>
-</div>
+### Manual Installation (Recommended)
+This method is recommended if you cannot access browser extension stores.
 
-## Install via GitHub Releases (Manual)
-
-This method is recommended if you cannot access the Chrome Web Store.
-
-- Download the latest release `.zip` from GitHub Releases: [Latest Release](https://github.com/Abelliuxl/ez-translate-lite/releases/latest)
-- Unzip the downloaded file
-- Chrome/Edge/Brave (Chromium-based):
-  - Open `chrome://extensions` (Edge: `edge://extensions`, Brave: `brave://extensions`)
-  - Enable "Developer mode"
-  - Click "Load unpacked" and select the unzipped folder that contains `manifest.json`
-- Firefox:
-  - Open `about:debugging#/runtime/this-firefox`
-  - Click "Load Temporary Add-on..." and select the `manifest.json` inside the unzipped folder
-- To update later: re-download the latest `.zip`, unzip, and click "Reload" on the extension page
+1. Download the latest release `.zip` from GitHub Releases: [Latest Release](https://github.com/Abelliuxl/ez-translate-lite/releases/latest)
+2. Unzip the downloaded file
+3. **Chrome/Edge/Brave (Chromium-based)**:
+   - Open `chrome://extensions` (Edge: `edge://extensions`, Brave: `brave://extensions`)
+   - Enable "Developer mode"
+   - Click "Load unpacked" and select the unzipped folder containing `manifest.json`
+4. **Firefox**:
+   - Open `about:debugging#/runtime/this-firefox`
+   - Click "Load Temporary Add-on..." and select `manifest.json` inside the unzipped folder
+5. **To update**: Re-download the latest `.zip`, unzip, and click "Reload" on the extension page
 
 ## Core Features
 
-*   **Multi-provider Support:** Supports configuring multiple Large Language Model providers (currently supports **Google Gemini**, **Silicon Flow**, **OpenRouter**, and **Ollama**), allowing you to freely choose the most suitable model.
-*   **Instant Hover Translation:** Select text on any web page, and a translation icon will appear next to your mouse. Click it to see the translation result in place for a smooth and uninterrupted experience.
-*   **🆕 Context Menu Translation:** Right-click on selected text to access translation options directly from the context menu. Choose between your primary or secondary target language for instant translation in a centered popup window.
-*   **📸 Screenshot Translation:** Capture any area of the webpage and translate text within images using AI vision capabilities. Perfect for translating text in images, PDFs, or screenshots.
-*   **⌨️ Keyboard Shortcuts:** Use `Ctrl+Shift+S` (Windows/Linux) or `Command+Shift+S` (Mac) to quickly activate screenshot translation mode.
-*   **Quick Popup Translation:** Click the browser toolbar icon to quickly enter or paste text for translation in a popup window.
-*   **Smart Auto-fill:** After selecting text, open the popup, and the selected text will be automatically filled into the input box, simplifying the operation.
-*   **One-Click Copy:** Copy translation results instantly with the built-in copy button, complete with visual feedback and multi-language support.
-*   **Secure Local Storage:** All API keys are securely stored in your local browser and are never uploaded.
-*   **Read Aloud and Copy:** In the popup window, you can read the input and output text aloud, and you can also copy the translation result with one click for convenient operation.
-*   **Smart Target Language Settings:** Configure default and second target languages for intelligent translation switching.
-*   **Intelligent Language Detection:** Automatically detects when source language matches target language and switches to second target language.
-*   **Comprehensive Language Support:** Supports 100+ languages with native translations for all interface elements.
-
-
-## Features to Implement
-*   **Custom Translation Styles:** Allow users to customize translation tone (formal, casual, technical, etc.).
-*   **Translation History:** Track and manage translation history with search and export capabilities.
-*   **Customizable Keyboard Shortcuts:** Allow users to customize keyboard shortcuts for different actions.
-*   **Offline Mode:** Enable basic translation functionality when internet connection is unavailable.
-*   **Advanced Settings Panel:** Enhanced configuration options for power users.
-*   **Dark Mode:** Implement dark theme support for better user experience in low-light environments.
-
-## Target Language Settings
-
-EZ Translate Lite now features intelligent target language management to enhance your translation experience:
-
-### **Default Target Language**
-- Set your preferred target language that syncs with the popup interface
-- Automatically used for all translation requests
-- Easily changeable through the settings page
-
-### **Second Target Language**
-- Configure an additional target language for quick switching
-- Automatically activated when source language matches your default target
-- Perfect for bilingual users or when translating between similar languages
-
-### **Smart Language Detection**
-- Automatically detects the source language of your text
-- Intelligently switches to second target language when source = default target
-- Prevents redundant translations and improves efficiency
-
-### **Example Use Cases**
-- **English ↔ Chinese**: Set English as default, Chinese as second target
-- **Spanish ↔ Portuguese**: Set Spanish as default, Portuguese as second target  
-- **German ↔ English**: Set German as default, English as second target
+*   **Flexible Provider Support:** Configure any LLM provider with custom API endpoints. No longer limited to specific providers.
+*   **Hover Translation:** Select text on any webpage, and a translation icon appears. Click to see translation results in place.
+*   **Popup Translation:** Click the browser toolbar icon to open a translation popup. Enter or paste text for instant translation.
+*   **Draggable Popup:** The translation popup window can be dragged and repositioned anywhere on screen.
+*   **Direct Text Selection:** Translation results can be selected and copied directly without additional buttons.
+*   **Smart Auto-fill:** Selected text automatically fills the popup input when opened.
+*   **One-Click Copy:** Built-in copy button for quick copying of translation results.
+*   **Secure Local Storage:** API keys are stored locally in your browser and never uploaded.
+*   **Smart Language Detection:** Automatically detects source language and switches target language when needed.
+*   **Multiple Language Support:** Supports 100+ languages for translation.
 
 ## Translation Methods
-
-EZ Translate Lite offers multiple convenient ways to translate text on web pages:
-
-### 🖱️ **Context Menu Translation (NEW)**
-1. **Select text** on any webpage
-2. **Right-click** to open the context menu
-3. **Choose from translation options:**
-   - "Translate to [Primary Language]" - Uses your default target language
-   - "Translate to [Secondary Language]" - Uses your second target language
-   - "Open Settings" - Quick access to configuration
-4. **View results** in a centered popup with original text and translation
-5. **Copy instantly** using the built-in copy button
-
-**Benefits:**
-- Fastest translation method with minimal clicks
-- Direct access without additional UI elements
-- Dynamic menu labels showing current language settings
-- Professional popup design with copy functionality
 
 ### 📍 **Hover Translation**
 1. **Select text** on any webpage
@@ -140,97 +72,78 @@ EZ Translate Lite offers multiple convenient ways to translate text on web pages
 1. **Click the extension icon** in your browser toolbar
 2. **Enter or paste text** in the input field
 3. **Click translate** to get results
-4. **Use additional features** like text-to-speech
-
-### 📸 **Screenshot Translation (NEW)**
-1. **Click the screenshot icon** in the popup or use keyboard shortcut `Ctrl+Shift+S` / `Command+Shift+S`
-2. **Select an area** on the webpage by dragging your mouse
-3. **Click "Translate"** in the selection toolbar
-4. **View results** in a popup with recognized text and translation
-5. **Copy the translation** using the built-in copy button
-
-**Benefits:**
-- Translate text in images, PDFs, and screenshots
-- AI-powered multimodal recognition for accurate text understanding
-- Works with any visual content on web pages
-- Quick keyboard shortcut for instant access
+4. **Drag the popup** to reposition it anywhere on screen
+5. **Select and copy** text directly from the results
 
 ### ⚡ **Smart Features**
 - **Auto-fill**: Selected text automatically fills popup input
 - **Language detection**: Automatically switches between target languages
-- **Copy protection**: Enhanced popup stability for text selection
-- **Keyboard shortcuts**: ESC key to close popups quickly
-- **Screenshot shortcuts**: `Ctrl+Shift+S` / `Command+Shift+S` for instant screenshot mode
+- **Draggable interface**: Move translation popup anywhere on screen
+- **Direct text access**: Select and copy translation results directly
+
+## Configuration
+
+### Provider Setup
+This fork supports flexible provider configuration:
+
+1. Open extension settings
+2. Choose your preferred LLM provider type
+3. Enter your API endpoint and key
+4. Configure model parameters as needed
+
+### Supported Provider Types
+- **Custom API endpoints**: Use any LLM provider with a compatible API
+- **OpenAI-compatible APIs**: Support for services offering OpenAI-compatible interfaces
+- **Local models**: Configure local inference servers
 
 ## Tech Stack
 
 *   **Frontend:** `HTML`, `CSS`, `JavaScript`
-*   **Browser API:** `WebExtensions API` (compatible with modern browsers like Chrome, Firefox, Edge, etc.)
-*   **Speech Synthesis:** `Web Speech API`
+*   **Browser API:** `WebExtensions API` (compatible with Chrome, Firefox, Edge, etc.)
+*   **Storage:** `chrome.storage.local` for secure local data storage
 
-## Provider Details
+## Comparison with Original
 
-### 🌐 OpenRouter Integration (NEW)
+| Feature | Original EZ Translate | This Fork |
+|---------|----------------------|-----------|
+| Provider Support | Fixed providers (Gemini, SiliconFlow, etc.) | **Flexible, any provider** |
+| Translation Methods | Hover, Popup, Right-click, Screenshot | **Hover, Popup only** (simplified) |
+| UI Complexity | Multiple features and options | **Simplified, focused interface** |
+| Popup Behavior | Fixed position | **Draggable, repositionable** |
+| Text Copying | Copy button only | **Direct selection + copy button** |
+| Voice Features | Text-to-speech support | **Removed for simplicity** |
+| Image Translation | Screenshot translation | **Removed for simplicity** |
 
-EZ Translate Lite now supports **OpenRouter**, a unified API platform that provides access to hundreds of AI models from different providers:
+## Why This Fork?
 
-**Key Features:**
-- **🆓 Free Models Only**: Automatically filters to show only free models with "free" in their names
-- **🖼️ Image Support**: Only displays models that support image input for screenshot translation
-- **🎯 Smart Filtering**: Combines both criteria to show the most suitable models for translation tasks
-- **🔄 Unified Access**: Single API key to access models from OpenAI, Anthropic, Google, Meta, and more
-- **📊 Model Variety**: Choose from different model families and sizes based on your needs
+The original EZ Translate is a feature-rich extension, but some users prefer a simpler, more focused tool. This fork:
 
-**Getting Started:**
-1. Visit [OpenRouter](https://openrouter.ai/keys) to get your API key
-2. In EZ-Translator-lite settings, switch to the "OpenRouter" tab
-3. Enter your API key and click "Fetch Models"
-4. Select from the filtered list of free, image-capable models
+1. **Reduces complexity** by removing rarely-used features
+2. **Increases flexibility** by supporting any LLM provider
+3. **Improves usability** with draggable popups and direct text copying
+4. **Maintains core functionality** for daily translation needs
+5. **Lightweight design** for faster performance
 
-**Recommended OpenRouter Models:**
-- `meta-llama/llama-4-scout:free` - High-quality Llama model
-- `google/gemma-3-27b-it:free` - Latest Gemini with vision support
-- `qwen/qwen2.5-vl-32b-instruct:free` - Qwen's advanced reasoning capabilities
+## Contributing
 
-## Recommended Models
+Contributions are welcome! Since this is a simplified fork, please focus on:
+- Bug fixes and stability improvements
+- Usability enhancements
+- Performance optimizations
+- Documentation improvements
 
-### Free Models by Provider
+Please note that we generally avoid adding back the removed complex features to maintain the lightweight philosophy.
 
-| Provider | Recommended Models | Notes |
-|----------|-------------------|-------|
-| **Google Gemini** | `gemma3:12b`<br>`gemma3:4b`<br>`gemma3n` | Free models, recommend Gemma 3 12B |
-| **Silicon Flow** | `qwen3:8b`<br>`glm-4:9b`<br>`qwen2.5:7b` | Free models, recommend Qwen3-8B |
-| **OpenRouter** | `meta-llama/llama-4-scout:free`<br>`google/gemma-3-27b-it:free`<br>`qwen/qwen2.5-vl-32b-instruct:free` | Free models with image support, auto-filtered |
-| **Ollama (Local)** | `qwen2:1.5b`<br>`llama3.1:8b`<br>`gemma2:2b` | Download and run locally |
+## License
 
-### Model Selection Tips
+This project is licensed under the same license as the original EZ Translate project. See the [LICENSE](LICENSE) file for details.
 
-* **For Speed**: Choose smaller models (1.5B-3B parameters)
-* **For Quality**: Choose larger models (7B+ parameters)  
-* **For Privacy**: Use Ollama with local models
-* **For Cost**: All listed models are free to use
-* **For Variety**: Use OpenRouter to access hundreds of free models from different providers
+## Acknowledgments
 
-*Last updated: September 19, 2025*
+- Original project: [licon/ez-translate](https://github.com/licon/ez-translate)
+- All contributors to the original project
+- The open-source LLM community
 
-## Translation Quality Comparison
+---
 
-See how EZ Translate Lite compares to other translation tools in terms of accuracy and fluency:
-
-### English to Chinese Translation Examples
-
-| Original Text | Google Translate API | EZ Translate Lite |
-|---------------|------------------|---------------|
-| "Supports one-time, recurring, and usage-based pricing models. Learn more about Subscriptions, Usage-based billing, and Invoicing." | "支持一次性，经常性和基于用法的定价模型。了解有关订阅，基于使用的计费和发票的更多信息。" | ✅ "支持一次性、周期性和基于使用情况的定价模型。了解更多关于订阅、基于使用情况的计费和发票的信息。" |
-| "If you're residing in one of China's territories, please select an option for your specific location. You won't be able to change it later." | "如果您居住在中国的一个领土之一，请为您的特定位置选择一个选项。您将稍后再进行更改。" | ✅ "如果您居住在中国的某个地区，请选择您所在的具体位置。您将无法在之后更改它。" |
-| "Super cool design and the app idea is a no brainer. Good work" | "超级酷的设计和应用程序的想法是无关紧要的。做得好" | ✅ "超酷的设计，这个应用的想法非常直观。做得好" |
-
-### Key Advantages
-
-* **Context Awareness**: EZ Translate Lite understands context better than traditional MT
-* **Natural Fluency**: More natural and fluent translations that sound human-written
-* **Cultural Nuances**: Better handling of cultural expressions and idioms
-* **Technical Accuracy**: Superior translation of technical and specialized content
-* **Consistency**: More consistent terminology across different contexts
-
-*Note: Translation quality may vary depending on the selected model and provider.*
+*Last updated: December 2025*
