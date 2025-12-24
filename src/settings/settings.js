@@ -210,6 +210,12 @@ let currentSettings = {
     useCustomModel: false,
     customModel: ''
 };
+let syncEnabled = false; // 默认关闭同步
+
+// 获取存储对象（根据同步开关决定使用 local 还是 sync）
+function getStorage() {
+    return syncEnabled ? chrome.storage.sync : chrome.storage.local;
+}
 
 // --- DOM元素 ---
 const elements = {
@@ -238,7 +244,9 @@ const elements = {
     customModelSection: document.getElementById('custom-model-section'),
     customModelInput: document.getElementById('custom-model-input'),
     // 保存按钮
-    saveSettingsBtn: document.getElementById('save-settings-btn')
+    saveSettingsBtn: document.getElementById('save-settings-btn'),
+    // 同步设置
+    enableSyncCheckbox: document.getElementById('enable-sync-checkbox')
 };
 
 // --- 工具函数 ---
@@ -278,7 +286,7 @@ function showStatus(message, type = 'info', duration = 3000) {
 }
 
 function saveProviderSettings() {
-    chrome.storage.local.get(['providerSettings'], (result) => {
+    getStorage().get(['providerSettings'], (result) => {
         const allSettings = result.providerSettings || {};
         
         // 保存当前供应商的特定设置
@@ -302,13 +310,14 @@ function saveProviderSettings() {
         allSettings.selectedModel = currentSettings.selectedModel;
         allSettings.useCustomModel = currentSettings.useCustomModel;
         allSettings.customModel = currentSettings.customModel;
-        
-        chrome.storage.local.set({ providerSettings: allSettings });
+
+        getStorage().set({ providerSettings: allSettings });
     });
 }
 
 async function loadProviderSettings() {
-    const result = await chrome.storage.local.get(['providerSettings']);
+    const storage = getStorage();
+    const result = await storage.get(['providerSettings']);
     if (result.providerSettings) {
         const allSettings = result.providerSettings;
         currentProvider = allSettings.currentProvider;
@@ -339,7 +348,8 @@ async function setupProviderConfig(providerId) {
     // 如果切换了供应商，先加载该供应商的设置
     if (currentProvider !== providerId) {
         currentProvider = providerId;
-        const result = await chrome.storage.local.get(['providerSettings']);
+        const storage = getStorage();
+        const result = await storage.get(['providerSettings']);
         const allSettings = result.providerSettings || {};
         const providerData = (allSettings.providers && allSettings.providers[providerId]) || {};
         
@@ -674,7 +684,7 @@ function populateLanguages() {
 }
 
 function loadLanguageSettings() {
-    chrome.storage.local.get(['targetLanguage', 'secondTargetLanguage'], (result) => {
+    getStorage().get(['targetLanguage', 'secondTargetLanguage'], (result) => {
         if (result.targetLanguage) {
             elements.defaultTargetLanguageSelect.value = result.targetLanguage;
         } else {
@@ -791,12 +801,12 @@ function setupEventListeners() {
     
     // 语言设置
     elements.defaultTargetLanguageSelect.addEventListener('change', (e) => {
-        chrome.storage.local.set({ targetLanguage: e.target.value });
+        getStorage().set({ targetLanguage: e.target.value });
         showStatus(`默认目标语言已设置`, 'success');
     });
     
     elements.secondTargetLanguageSelect.addEventListener('change', (e) => {
-        chrome.storage.local.set({ secondTargetLanguage: e.target.value });
+        getStorage().set({ secondTargetLanguage: e.target.value });
         showStatus(`第二目标语言已设置`, 'success');
     });
     
@@ -820,6 +830,51 @@ function setupEventListeners() {
     elements.saveSettingsBtn.addEventListener('click', () => {
         saveAllSettings();
     });
+
+    // 同步开关
+    elements.enableSyncCheckbox.addEventListener('change', async (e) => {
+        const newSyncEnabled = e.target.checked;
+        const storage = getStorage();
+
+        if (newSyncEnabled !== syncEnabled) {
+            // 同步开关状态发生变化
+            const oldStorage = syncEnabled ? chrome.storage.sync : chrome.storage.local;
+            const newStorage = newSyncEnabled ? chrome.storage.sync : chrome.storage.local;
+
+            // 迁移数据：从旧存储读取，写入新存储
+            showStatus('正在迁移数据...', 'info');
+
+            try {
+                // 获取所有旧存储的数据
+                const oldData = await oldStorage.get(null);
+
+                // 写入新存储
+                await new Promise((resolve, reject) => {
+                    newStorage.set(oldData, () => {
+                        if (chrome.runtime.lastError) {
+                            reject(chrome.runtime.lastError);
+                        } else {
+                            resolve();
+                        }
+                    });
+                });
+
+                // 保存同步开关状态到 local（不同步这个开关本身）
+                chrome.storage.local.set({ syncEnabled: newSyncEnabled });
+
+                syncEnabled = newSyncEnabled;
+
+                const message = newSyncEnabled
+                    ? '已启用浏览器同步，配置将同步到所有登录了相同浏览器账户的设备'
+                    : '已关闭浏览器同步，配置将仅保存在本地';
+                showStatus(message, 'success', 5000);
+            } catch (error) {
+                // 迁移失败，恢复开关状态
+                elements.enableSyncCheckbox.checked = syncEnabled;
+                showStatus(`数据迁移失败: ${error.message}`, 'error');
+            }
+        }
+    });
 }
 
 // --- 保存所有设置 ---
@@ -832,9 +887,9 @@ function saveAllSettings() {
         const targetLanguage = elements.defaultTargetLanguageSelect.value;
         const secondTargetLanguage = elements.secondTargetLanguageSelect.value;
         
-        chrome.storage.local.set({ 
-            targetLanguage, 
-            secondTargetLanguage 
+        getStorage().set({
+            targetLanguage,
+            secondTargetLanguage
         });
         
         showStatus('所有设置已保存成功！', 'success', 3000);
@@ -858,7 +913,16 @@ function saveAllSettings() {
 async function initialize() {
     setupI18n();
     populateLanguages();
-    loadLanguageSettings();
+
+    // 加载同步开关设置（始终从 local 读取，因为开关本身不同步）
+    chrome.storage.local.get(['syncEnabled'], (result) => {
+        syncEnabled = result.syncEnabled || false;
+        elements.enableSyncCheckbox.checked = syncEnabled;
+
+        // 加载其他设置
+        loadLanguageSettings();
+    });
+
     await loadProviderSettings();
     setupEventListeners();
 }

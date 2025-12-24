@@ -642,5 +642,17 @@
     "githubEncouragement": {
         "message": "您的支持帮助我们让这个扩展变得更好！🚀",
         "description": "关于支持项目的鼓励性信息。"
+    },
+    "syncSettingsTitle": {
+        "message": "云同步设置",
+        "description": "云同步设置部分的标题。"
+    },
+    "enableSyncLabel": {
+        "message": "启用浏览器账户同步",
+        "description": "启用浏览器同步开关的标签。"
+    },
+    "enableSyncHint": {
+        "message": "开启后，配置将同步到所有登录了相同浏览器账户的设备。注意：API 密钥也会被同步。",
+        "description": "解释浏览器同步功能的提示。"
     }
 }

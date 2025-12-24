@@ -1,3 +1,14 @@
+// --- 存储辅助函数 ---
+// 获取同步开关状态并返回相应的存储对象
+async function getStorage() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['syncEnabled'], (result) => {
+            const syncEnabled = result.syncEnabled || false;
+            resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
+        });
+    });
+}
+
 // --- I18n Helper ---
 function setupI18n() {
     document.querySelectorAll('[data-i18n]').forEach(elem => {
@@ -32,8 +43,9 @@ function populateLanguages() {
     setDefaultLanguage();
 }
 
-function setDefaultLanguage() {
-    chrome.storage.local.get(['targetLanguage'], (result) => {
+async function setDefaultLanguage() {
+    const storage = await getStorage();
+    storage.get(['targetLanguage'], (result) => {
         if (result.targetLanguage) {
             targetLanguageSelect.value = result.targetLanguage;
         } else {
@@ -41,14 +53,14 @@ function setDefaultLanguage() {
             const browserLang = chrome.i18n.getUILanguage();
             const langCode = browserLang.split('-')[0];
             const defaultLangKey = browserLangToMsgKey[browserLang] || browserLangToMsgKey[langCode];
-            
+
             if (defaultLangKey) {
                 targetLanguageSelect.value = defaultLangKey;
-                chrome.storage.local.set({ targetLanguage: defaultLangKey });
+                storage.set({ targetLanguage: defaultLangKey });
             } else {
                 // Fallback to English if no match found
                 targetLanguageSelect.value = 'langEnglish';
-                chrome.storage.local.set({ targetLanguage: 'langEnglish' });
+                storage.set({ targetLanguage: 'langEnglish' });
             }
         }
     });
@@ -99,7 +111,7 @@ const copyButton = document.getElementById('copy-button');
 const selectionTranslateToggle = document.getElementById('selection-translate-toggle');
 const settingsIconButton = document.getElementById('settings-icon-button');
 
-translateButton.addEventListener('click', () => {
+translateButton.addEventListener('click', async () => {
     const text = textInput.value;
     const targetLanguageKey = targetLanguageSelect.value;
     const targetLanguage = langKeyToEnName[targetLanguageKey] || 'English';
@@ -107,9 +119,10 @@ translateButton.addEventListener('click', () => {
     if (text.trim()) {
         resultContainer.innerText = chrome.i18n.getMessage('statusTranslating');
         copyButton.style.display = 'none';
-        
+
         // Get second target language from settings
-        chrome.storage.local.get(['secondTargetLanguage'], (result) => {
+        const storage = await getStorage();
+        storage.get(['secondTargetLanguage'], (result) => {
             const secondTargetLanguageKey = result.secondTargetLanguage || 'langEnglish';
             const secondTargetLanguage = langKeyToEnName[secondTargetLanguageKey] || 'English';
             
@@ -144,21 +157,24 @@ copyButton.addEventListener('click', () => {
     });
 });
 
-targetLanguageSelect.addEventListener('change', () => {
-    chrome.storage.local.set({ targetLanguage: targetLanguageSelect.value });
+targetLanguageSelect.addEventListener('change', async () => {
+    const storage = await getStorage();
+    storage.set({ targetLanguage: targetLanguageSelect.value });
 });
 
-selectionTranslateToggle.addEventListener('change', () => {
-    chrome.storage.local.set({ isSelectionTranslationEnabled: selectionTranslateToggle.checked });
+selectionTranslateToggle.addEventListener('change', async () => {
+    const storage = await getStorage();
+    storage.set({ isSelectionTranslationEnabled: selectionTranslateToggle.checked });
 });
 
-function loadSettings() {
-    chrome.storage.local.get(['isSelectionTranslationEnabled'], (result) => {
+async function loadSettings() {
+    const storage = await getStorage();
+    storage.get(['isSelectionTranslationEnabled'], (result) => {
         selectionTranslateToggle.checked = result.isSelectionTranslationEnabled !== false; // Default to true
     });
 }
 
-function loadSelectedText() {
+async function loadSelectedText() {
     chrome.storage.local.get('lastSelectedText', (result) => {
         if (result.lastSelectedText) {
             textInput.value = result.lastSelectedText;

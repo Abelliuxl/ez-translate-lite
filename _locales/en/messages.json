@@ -672,5 +672,17 @@
     "githubEncouragement": {
         "message": "Your support helps us make this extension even better for everyone! 🚀",
         "description": "Encouraging message about supporting the project."
+    },
+    "syncSettingsTitle": {
+        "message": "Cloud Sync Settings",
+        "description": "Title for cloud sync settings section."
+    },
+    "enableSyncLabel": {
+        "message": "Enable Browser Account Sync",
+        "description": "Label for enable browser sync toggle."
+    },
+    "enableSyncHint": {
+        "message": "When enabled, settings will sync to all devices signed in with the same browser account. Note: API keys will also be synced.",
+        "description": "Explanation of browser sync functionality."
     }
 }

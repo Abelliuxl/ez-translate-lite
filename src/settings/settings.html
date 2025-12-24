@@ -104,17 +104,30 @@
     <!-- 目标语言设置 -->
     <div class="target-language-settings">
         <h2 data-i18n="targetLanguageSettingsTitle"></h2>
-        
+
         <div class="form-group">
             <label for="default-target-language" data-i18n="defaultTargetLanguageLabel"></label>
             <p class="hint" data-i18n="defaultTargetLanguageHint"></p>
             <select id="default-target-language"></select>
         </div>
-        
+
         <div class="form-group">
             <label for="second-target-language" data-i18n="secondTargetLanguageLabel"></label>
             <p class="hint" data-i18n="secondTargetLanguageHint"></p>
             <select id="second-target-language"></select>
+        </div>
+    </div>
+
+    <!-- 云同步设置 -->
+    <div class="sync-settings">
+        <h2 data-i18n="syncSettingsTitle"></h2>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="enable-sync-checkbox">
+                <span data-i18n="enableSyncLabel"></span>
+            </label>
+            <p class="hint" data-i18n="enableSyncHint"></p>
         </div>
     </div>
 

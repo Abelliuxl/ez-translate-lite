@@ -1,5 +1,16 @@
 // content.js - 负责划词翻译的 UI 和交互 (v2 - 修复版)
 
+// --- 存储辅助函数 ---
+// 获取同步开关状态并返回相应的存储对象
+async function getStorage() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['syncEnabled'], (result) => {
+            const syncEnabled = result.syncEnabled || false;
+            resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
+        });
+    });
+}
+
 // --- 全局变量 ---
 let translateIcon = null;
 let resultPopover = null;
@@ -12,9 +23,9 @@ chrome.storage.local.get('isSelectionTranslationEnabled', (result) => {
     isEnabled = result.isSelectionTranslationEnabled !== false;
 });
 
-// 监听设置变化
+// 监听设置变化（同时监听 local 和 sync 命名空间）
 chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && changes.isSelectionTranslationEnabled) {
+    if (changes.isSelectionTranslationEnabled) {
         isEnabled = changes.isSelectionTranslationEnabled.newValue;
         // 如果禁用了，立即移除现有UI
         if (!isEnabled) {
@@ -96,7 +107,8 @@ function createTranslateIcon(x, y, text) {
     translateIcon.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const { targetLanguage, secondTargetLanguage } = await chrome.storage.local.get(['targetLanguage', 'secondTargetLanguage']);
+        const storage = await getStorage();
+        const { targetLanguage, secondTargetLanguage } = await storage.get(['targetLanguage', 'secondTargetLanguage']);
         // 存储中保存的是语言键（如 langEnglish）。但为了兼容历史数据，做健壮处理。
         const storedPrimary = targetLanguage || 'langSimplifiedChinese';
         const storedSecondary = secondTargetLanguage || 'langEnglish';

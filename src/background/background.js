@@ -1,3 +1,14 @@
+// --- 存储辅助函数 ---
+// 获取同步开关状态并返回相应的存储对象
+async function getStorage() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['syncEnabled'], (result) => {
+            const syncEnabled = result.syncEnabled || false;
+            resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
+        });
+    });
+}
+
 // --- 提供商配置 ---
 const PROVIDER_CONFIG = {
     openai: {
@@ -115,11 +126,14 @@ const PROVIDER_CONFIG = {
 };
 
 // --- 初始化与安装 ---
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
     console.log("LLM-Translate 插件已安装或更新。");
-    
+
+    // 获取存储对象
+    const storage = await getStorage();
+
     // 设置初始默认值，仅当它们不存在时
-    chrome.storage.local.get(null, (items) => {
+    storage.get(null, (items) => {
         const defaults = {
             targetLanguage: 'langSimplifiedChinese',
             secondTargetLanguage: 'langEnglish'
@@ -131,7 +145,7 @@ chrome.runtime.onInstalled.addListener(() => {
             }
         }
         if (Object.keys(itemsToSet).length > 0) {
-            chrome.storage.local.set(itemsToSet);
+            storage.set(itemsToSet);
             console.log("已设置初始默认值:", itemsToSet);
         }
     });
@@ -187,7 +201,8 @@ function normalizeLanguageToEnglishName(langValue) {
 async function handleTranslation(text, targetLanguage, secondTargetLanguage, sendResponse) {
     try {
         // 获取提供商设置
-        const providerSettings = await chrome.storage.local.get('providerSettings');
+        const storage = await getStorage();
+        const providerSettings = await storage.get('providerSettings');
         if (!providerSettings.providerSettings) {
             sendResponse({ error: '请先在设置页面配置LLM提供商' });
             return;
