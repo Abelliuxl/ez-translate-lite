@@ -11,34 +11,6 @@ async function getStorage() {
 
 // --- 提供商配置 ---
 const PROVIDER_CONFIG = {
-    openai: {
-        name: 'OpenAI',
-        modelsEndpoint: 'https://api.openai.com/v1/chat/completions',
-        visionEndpoint: 'https://api.openai.com/v1/chat/completions',
-        apiFormat: 'openai',
-        supportsVision: true
-    },
-    anthropic: {
-        name: 'Anthropic Claude',
-        modelsEndpoint: 'https://api.anthropic.com/v1/messages',
-        visionEndpoint: 'https://api.anthropic.com/v1/messages',
-        apiFormat: 'anthropic',
-        supportsVision: true
-    },
-    google: {
-        name: 'Google AI',
-        modelsEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-        visionEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-        apiFormat: 'google',
-        supportsVision: true
-    },
-    microsoft: {
-        name: 'Microsoft Azure',
-        modelsEndpoint: '{serverUrl}/openai/deployments/{model}/chat/completions?api-version=2024-02-15-preview',
-        visionEndpoint: '{serverUrl}/openai/deployments/{model}/chat/completions?api-version=2024-02-15-preview',
-        apiFormat: 'azure',
-        supportsVision: true
-    },
     openrouter: {
         name: 'OpenRouter',
         modelsEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
@@ -53,17 +25,17 @@ const PROVIDER_CONFIG = {
         apiFormat: 'openai',
         supportsVision: true
     },
-    together: {
-        name: 'Together AI',
-        modelsEndpoint: 'https://api.together.xyz/v1/chat/completions',
-        visionEndpoint: 'https://api.together.xyz/v1/chat/completions',
+    longcat: {
+        name: 'Longcat AI',
+        modelsEndpoint: 'https://api.longcat.chat/openai/v1/chat/completions',
+        visionEndpoint: 'https://api.longcat.chat/openai/v1/chat/completions',
         apiFormat: 'openai',
-        supportsVision: true
+        supportsVision: false
     },
-    groq: {
-        name: 'Groq',
-        modelsEndpoint: 'https://api.groq.com/openai/v1/chat/completions',
-        visionEndpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    minimax: {
+        name: 'MiniMax',
+        modelsEndpoint: 'https://api.minimax.io/v1/chat/completions',
+        visionEndpoint: 'https://api.minimax.io/v1/chat/completions',
         apiFormat: 'openai',
         supportsVision: false
     },
@@ -102,26 +74,19 @@ const PROVIDER_CONFIG = {
         apiFormat: 'openai',
         supportsVision: true
     },
-    ollama: {
-        name: 'Ollama',
-        modelsEndpoint: '{serverUrl}/api/generate',
-        visionEndpoint: '{serverUrl}/api/generate',
-        apiFormat: 'ollama',
-        supportsVision: false // 取决于模型
-    },
-    lmstudio: {
-        name: 'LM Studio',
+    'custom-openai': {
+        name: '自定义 OpenAI 兼容',
         modelsEndpoint: '{serverUrl}/v1/chat/completions',
         visionEndpoint: '{serverUrl}/v1/chat/completions',
-        apiFormat: 'openai',
-        supportsVision: false
+        apiFormat: 'custom-openai',
+        supportsVision: true
     },
-    vllm: {
-        name: 'vLLM',
-        modelsEndpoint: '{serverUrl}/v1/chat/completions',
-        visionEndpoint: '{serverUrl}/v1/chat/completions',
-        apiFormat: 'openai',
-        supportsVision: false
+    'custom-anthropic': {
+        name: '自定义 Anthropic 兼容',
+        modelsEndpoint: '{serverUrl}/v1/messages',
+        visionEndpoint: '{serverUrl}/v1/messages',
+        apiFormat: 'custom-anthropic',
+        supportsVision: true
     }
 };
 
@@ -230,6 +195,11 @@ async function handleTranslation(text, targetLanguage, secondTargetLanguage, sen
             sendResponse({ error: `${config.name} 服务器地址未配置` });
             return;
         }
+
+        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') && !serverUrl) {
+            sendResponse({ error: `${config.name} Base URL 未配置` });
+            return;
+        }
         
         // Detect source language and determine actual target language
         const actualTargetLanguage = await determineTargetLanguage(text, targetLanguage, secondTargetLanguage);
@@ -316,6 +286,53 @@ function mapLanguageCodeToName(languageCode) {
     return languageMap[languageCode] || 'English';
 }
 
+function normalizeBaseUrl(url) {
+    return (url || '').trim().replace(/\/+$/, '');
+}
+
+function sanitizeBaseUrlForPath(baseUrl, path) {
+    const normalizedBase = normalizeBaseUrl(baseUrl);
+    if (!normalizedBase) return '';
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    if (normalizedBase.endsWith(`/v1${normalizedPath}`)) {
+        return normalizedBase.slice(0, -(`/v1${normalizedPath}`).length);
+    }
+    if (normalizedBase.endsWith(normalizedPath)) {
+        return normalizedBase.slice(0, -normalizedPath.length);
+    }
+    return normalizedBase;
+}
+
+function buildEndpointCandidates(baseUrl, path) {
+    const normalizedBase = sanitizeBaseUrlForPath(baseUrl, path);
+    if (!normalizedBase) return [];
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const baseWithoutV1 = normalizedBase.replace(/\/v1$/, '');
+    const withV1 = normalizedBase.endsWith('/v1')
+        ? `${normalizedBase}${normalizedPath}`
+        : `${normalizedBase}/v1${normalizedPath}`;
+    const withoutV1 = `${baseWithoutV1}${normalizedPath}`;
+    return [...new Set([withV1, withoutV1])];
+}
+
+function buildV1Endpoint(baseUrl, path) {
+    return buildEndpointCandidates(baseUrl, path)[0] || '';
+}
+
+async function extractErrorMessage(response, fallback = 'API 请求失败') {
+    try {
+        const errorBody = await response.json();
+        return errorBody.error?.message || errorBody.message || fallback;
+    } catch (e) {
+        try {
+            const text = await response.text();
+            return text || fallback;
+        } catch (readError) {
+            return fallback;
+        }
+    }
+}
+
 
 // --- 统一API调用 ---
 
@@ -344,6 +361,18 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
     } else if (config.apiFormat === 'ollama') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl);
         return await callOllamaAPI(endpoint, model, prompt);
+    } else if (config.apiFormat === 'custom-openai') {
+        const endpoints = buildEndpointCandidates(serverUrl, '/chat/completions');
+        return await callOpenAICompatibleAPI(endpoints, apiKey, model, prompt);
+    } else if (config.apiFormat === 'custom-anthropic') {
+        const endpoints = buildEndpointCandidates(serverUrl, '/messages');
+        const modelCandidates = [
+            model,
+            'LongCat-Flash-Chat',
+            'claude-3-5-haiku-latest',
+            'claude-3-5-sonnet-latest'
+        ].filter(Boolean);
+        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, prompt);
     } else {
         throw new Error(`未支持的API格式: ${config.apiFormat}`);
     }
@@ -352,64 +381,126 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
 
 // --- OpenAI兼容API ---
 async function callOpenAICompatibleAPI(endpoint, apiKey, model, prompt) {
-    const headers = {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-    };
+    const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
+    let lastError = null;
 
-    // OpenRouter 推荐添加这些 Header 以识别应用
-    if (endpoint.includes('openrouter.ai')) {
-        headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
-        headers['X-Title'] = 'EZ Translate';
-        headers['X-OpenRouter-Title'] = 'EZ Translate';
+    for (let i = 0; i < endpoints.length; i++) {
+        const currentEndpoint = endpoints[i];
+        const headers = {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        };
+
+        // OpenRouter 推荐添加这些 Header 以识别应用
+        if (currentEndpoint.includes('openrouter.ai')) {
+            headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
+            headers['X-Title'] = 'EZ Translate';
+            headers['X-OpenRouter-Title'] = 'EZ Translate';
+        }
+
+        try {
+            const response = await fetch(currentEndpoint, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    model: model,
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 2048,
+                    temperature: 0.3,
+                }),
+                credentials: 'omit'
+            });
+
+            if (!response.ok) {
+                if (response.status === 404 && i < endpoints.length - 1) {
+                    continue;
+                }
+                const errorMessage = await extractErrorMessage(response, 'API 请求失败');
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+            return data.choices[0].message.content.trim();
+        } catch (error) {
+            lastError = error;
+            if (i === endpoints.length - 1) {
+                throw error;
+            }
+        }
     }
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 2048,
-            temperature: 0.3,
-        }),
-        credentials: 'omit'
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.json();
-        throw new Error(errorBody.error?.message || `API 请求失败`);
-    }
-    
-    const data = await response.json();
-    return data.choices[0].message.content.trim();
+    throw lastError || new Error('API 请求失败');
 }
 
 
 // --- Anthropic API ---
 async function callAnthropicAPI(endpoint, apiKey, model, prompt) {
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
+    const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
+    const modelCandidates = Array.isArray(model) ? [...new Set(model)] : [model];
+    let lastError = null;
+    const authHeaderVariants = [
+        {
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
             'content-type': 'application/json'
         },
-        body: JSON.stringify({
-            model: model,
-            max_tokens: 2048,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.3,
-        }),
-    });
+        {
+            'Authorization': `Bearer ${apiKey}`,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json'
+        }
+    ];
 
-    if (!response.ok) {
-        const errorBody = await response.json();
-        throw new Error(errorBody.error?.message || `Anthropic API 请求失败`);
+    for (let i = 0; i < endpoints.length; i++) {
+        const currentEndpoint = endpoints[i];
+        for (let k = 0; k < modelCandidates.length; k++) {
+            const currentModel = modelCandidates[k];
+            for (let j = 0; j < authHeaderVariants.length; j++) {
+                try {
+                    const response = await fetch(currentEndpoint, {
+                        method: 'POST',
+                        headers: authHeaderVariants[j],
+                        body: JSON.stringify({
+                            model: currentModel,
+                            max_tokens: 2048,
+                            messages: [{ role: 'user', content: prompt }],
+                            temperature: 0.3,
+                        }),
+                        credentials: 'omit'
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            // 某些兼容网关在认证头不匹配时也会返回 404，先切换认证头再试
+                            if (j < authHeaderVariants.length - 1) {
+                                continue;
+                            }
+                            if (k < modelCandidates.length - 1 || i < endpoints.length - 1) {
+                                break;
+                            }
+                        }
+                        if ((response.status === 401 || response.status === 403) && j < authHeaderVariants.length - 1) {
+                            continue;
+                        }
+                        const errorMessage = await extractErrorMessage(response, 'Anthropic API 请求失败');
+                        throw new Error(errorMessage);
+                    }
+
+                    const data = await response.json();
+                    return data.content[0].text.trim();
+                } catch (error) {
+                    lastError = error;
+                    if (j === authHeaderVariants.length - 1 &&
+                        k === modelCandidates.length - 1 &&
+                        i === endpoints.length - 1) {
+                        throw error;
+                    }
+                }
+            }
+        }
     }
-    
-    const data = await response.json();
-    return data.content[0].text.trim();
+
+    throw lastError || new Error('Anthropic API 请求失败');
 }
 
 

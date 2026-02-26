@@ -4,7 +4,7 @@
         "description": "The name of the extension."
     },
     "appDescription": {
-        "message": "A simple LLM translation tool",
+        "message": "Light version of EZ Translate",
         "description": "The description of the extension."
     },
     "popupTitle": {

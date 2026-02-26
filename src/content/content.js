@@ -60,7 +60,8 @@ document.addEventListener('mouseup', (event) => {
 // 监听鼠标按下事件，用于在开始新的操作时移除UI
 document.addEventListener('mousedown', (event) => {
     // 如果点击的不是我们的UI，则移除它
-    if (!event.target.closest('#llm-translate-icon, #llm-translate-popover')) {
+    const target = event.target;
+    if (!target || !(target instanceof Element) || !target.closest('#llm-translate-icon, #llm-translate-popover')) {
         removeTranslationUI();
     }
 });
@@ -270,7 +271,8 @@ function makeDraggable(element, handle) {
         }
 
         // 如果点击的是内容区域且不是 handle，则允许文本选择，不触发拖拽
-        if (handle !== element && !e.target.closest('.llm-translate-header') && !e.target.closest('.llm-translate-popover-header')) {
+        const target = e.target;
+        if (handle !== element && (!target || !(target instanceof Element) || (!target.closest('.llm-translate-header') && !target.closest('.llm-translate-popover-header')))) {
             return;
         }
         

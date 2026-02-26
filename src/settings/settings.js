@@ -1,56 +1,5 @@
 // --- 提供商配置 ---
 const PROVIDER_CONFIG = {
-    openai: {
-        name: 'OpenAI',
-        needApiKey: true,
-        needServerUrl: false,
-        apiKeyLabel: 'OpenAI API Key',
-        apiKeyPlaceholder: 'sk-...',
-        apiKeyHelp: 'https://platform.openai.com/api-keys',
-        modelsEndpoint: 'https://api.openai.com/v1/models',
-        modelsFilter: (models) => models.data.filter(m => 
-            m.id.includes('gpt') && !m.id.includes('realtime')
-        ),
-        apiFormat: 'openai'
-    },
-    anthropic: {
-        name: 'Anthropic Claude',
-        needApiKey: true,
-        needServerUrl: false,
-        apiKeyLabel: 'Anthropic API Key',
-        apiKeyPlaceholder: 'sk-ant-...',
-        apiKeyHelp: 'https://console.anthropic.com/',
-        modelsEndpoint: 'https://api.anthropic.com/v1/messages',
-        modelsFilter: null, // Claude有固定的模型列表
-        fixedModels: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
-        apiFormat: 'anthropic'
-    },
-    google: {
-        name: 'Google AI',
-        needApiKey: true,
-        needServerUrl: false,
-        apiKeyLabel: 'Google AI API Key',
-        apiKeyPlaceholder: 'AIza...',
-        apiKeyHelp: 'https://aistudio.google.com/app/apikey',
-        modelsEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
-        modelsFilter: (models) => models.filter(m => 
-            m.supportedGenerationMethods.includes('generateContent')
-        ),
-        apiFormat: 'google'
-    },
-    microsoft: {
-        name: 'Microsoft Azure',
-        needApiKey: true,
-        needServerUrl: true,
-        apiKeyLabel: 'Azure API Key',
-        apiKeyPlaceholder: 'Your Azure API Key',
-        apiKeyHelp: 'https://portal.azure.com/',
-        serverUrlLabel: 'Azure Endpoint',
-        serverUrlPlaceholder: 'https://your-resource.openai.azure.com/',
-        serverUrlHelp: 'https://learn.microsoft.com/en-us/azure/ai-services/openai/',
-        modelsEndpoint: null, // 需要从 Azure 获取
-        apiFormat: 'azure'
-    },
     openrouter: {
         name: 'OpenRouter',
         needApiKey: true,
@@ -78,31 +27,33 @@ const PROVIDER_CONFIG = {
         ),
         apiFormat: 'openai'
     },
-    together: {
-        name: 'Together AI',
+    longcat: {
+        name: 'Longcat AI',
         needApiKey: true,
         needServerUrl: false,
-        apiKeyLabel: 'Together API Key',
-        apiKeyPlaceholder: 'Your Together API Key',
-        apiKeyHelp: 'https://api.together.xyz/settings/api-keys',
-        modelsEndpoint: 'https://api.together.xyz/v1/models',
-        modelsFilter: (models) => models.data.filter(m => 
-            !m.id.includes('embedding')
-        ),
-        apiFormat: 'openai'
+        apiKeyLabel: 'Longcat API Key',
+        apiKeyPlaceholder: 'ak-...',
+        apiKeyHelp: 'https://api.longcat.chat/',
+        modelsEndpoint: 'https://api.longcat.chat/openai/v1/models',
+        modelsFilter: null,
+        fixedModels: ['LongCat-Flash-Chat'],
+        apiFormat: 'openai',
+        testMode: 'chat',
+        testEndpoint: 'https://api.longcat.chat/openai/v1/chat/completions'
     },
-    groq: {
-        name: 'Groq',
+    minimax: {
+        name: 'MiniMax',
         needApiKey: true,
         needServerUrl: false,
-        apiKeyLabel: 'Groq API Key',
-        apiKeyPlaceholder: 'gsk_...',
-        apiKeyHelp: 'https://console.groq.com/keys',
-        modelsEndpoint: 'https://api.groq.com/openai/v1/models',
-        modelsFilter: (models) => models.data.filter(m => 
-            !m.id.includes('whisper')
-        ),
-        apiFormat: 'openai'
+        apiKeyLabel: 'MiniMax API Key',
+        apiKeyPlaceholder: 'your-minimax-api-key',
+        apiKeyHelp: 'https://platform.minimax.io/',
+        modelsEndpoint: 'https://api.minimax.io/v1/models',
+        modelsFilter: null,
+        fixedModels: ['MiniMax-Text-01'],
+        apiFormat: 'openai',
+        testMode: 'chat',
+        testEndpoint: 'https://api.minimax.io/v1/chat/completions'
     },
     zhipuai: {
         name: '智谱AI',
@@ -166,38 +117,33 @@ const PROVIDER_CONFIG = {
         ),
         apiFormat: 'openai'
     },
-    ollama: {
-        name: 'Ollama',
-        needApiKey: false,
+    'custom-openai': {
+        name: '自定义 OpenAI 兼容',
+        needApiKey: true,
         needServerUrl: true,
-        serverUrlLabel: 'Ollama 服务器地址',
-        serverUrlPlaceholder: 'http://localhost:11434',
-        serverUrlHelp: 'https://ollama.com/',
-        modelsEndpoint: null, // 动态构建
-        modelsFilter: (models) => models,
-        apiFormat: 'ollama'
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'Your API Key',
+        apiKeyHelp: '填写你的 API Key',
+        serverUrlLabel: 'Base URL',
+        serverUrlPlaceholder: 'https://api.example.com',
+        serverUrlHelp: '填写 Base URL（不要包含 /v1、/models、/chat/completions 等接口路径）',
+        modelsEndpoint: '{serverUrl}/v1/models',
+        modelsFilter: (models) => models.data || models,
+        apiFormat: 'custom-openai'
     },
-    lmstudio: {
-        name: 'LM Studio',
-        needApiKey: false,
+    'custom-anthropic': {
+        name: '自定义 Anthropic 兼容',
+        needApiKey: true,
         needServerUrl: true,
-        serverUrlLabel: 'LM Studio 服务器地址',
-        serverUrlPlaceholder: 'http://localhost:1234',
-        serverUrlHelp: 'https://lmstudio.ai/',
-        modelsEndpoint: 'http://localhost:1234/v1/models',
-        modelsFilter: (models) => models.data,
-        apiFormat: 'openai'
-    },
-    vllm: {
-        name: 'vLLM',
-        needApiKey: false,
-        needServerUrl: true,
-        serverUrlLabel: 'vLLM 服务器地址',
-        serverUrlPlaceholder: 'http://localhost:8000',
-        serverUrlHelp: 'https://github.com/vllm-project/vllm',
-        modelsEndpoint: 'http://localhost:8000/v1/models',
-        modelsFilter: (models) => models.data,
-        apiFormat: 'openai'
+        apiKeyLabel: 'API Key',
+        apiKeyPlaceholder: 'Your API Key',
+        apiKeyHelp: '填写你的 API Key',
+        serverUrlLabel: 'Base URL',
+        serverUrlPlaceholder: 'https://api.example.com',
+        serverUrlHelp: '填写 Base URL（不要包含 /v1、/messages 等接口路径）',
+        modelsEndpoint: '{serverUrl}/v1/models',
+        modelsFilter: (models) => models.data || models,
+        apiFormat: 'custom-anthropic'
     }
 };
 
@@ -480,6 +426,178 @@ function updateCustomModelUI() {
     }
 }
 
+function normalizeBaseUrl(url) {
+    return (url || '').trim().replace(/\/+$/, '');
+}
+
+function sanitizeBaseUrlForPath(baseUrl, path) {
+    const normalizedBase = normalizeBaseUrl(baseUrl);
+    if (!normalizedBase) return '';
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    if (normalizedBase.endsWith(`/v1${normalizedPath}`)) {
+        return normalizedBase.slice(0, -(`/v1${normalizedPath}`).length);
+    }
+    if (normalizedBase.endsWith(normalizedPath)) {
+        return normalizedBase.slice(0, -normalizedPath.length);
+    }
+    return normalizedBase;
+}
+
+function buildEndpointCandidates(baseUrl, path) {
+    const normalizedBase = sanitizeBaseUrlForPath(baseUrl, path);
+    if (!normalizedBase) return [];
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const baseWithoutV1 = normalizedBase.replace(/\/v1$/, '');
+    const withV1 = normalizedBase.endsWith('/v1')
+        ? `${normalizedBase}${normalizedPath}`
+        : `${normalizedBase}/v1${normalizedPath}`;
+    const withoutV1 = `${baseWithoutV1}${normalizedPath}`;
+    return [...new Set([withV1, withoutV1])];
+}
+
+function buildV1Endpoint(baseUrl, path) {
+    return buildEndpointCandidates(baseUrl, path)[0] || '';
+}
+
+async function extractErrorMessage(response, fallback = '请求失败') {
+    try {
+        const errorData = await response.json();
+        return errorData.error?.message || errorData.message || fallback;
+    } catch (e) {
+        try {
+            const text = await response.text();
+            return text || fallback;
+        } catch (readError) {
+            return fallback;
+        }
+    }
+}
+
+async function fetchWithFallback(urlCandidates, options = {}, retryStatuses = [404], acceptedStatuses = []) {
+    const candidates = (Array.isArray(urlCandidates) ? urlCandidates : [urlCandidates]).filter(Boolean);
+    if (candidates.length === 0) {
+        throw new Error('请求地址为空');
+    }
+
+    let lastError = null;
+    for (let i = 0; i < candidates.length; i++) {
+        const url = candidates[i];
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || acceptedStatuses.includes(response.status)) {
+                return { url, response };
+            }
+            if (retryStatuses.includes(response.status) && i < candidates.length - 1) {
+                continue;
+            }
+            const message = await extractErrorMessage(response, `HTTP ${response.status}`);
+            const error = new Error(message);
+            error.status = response.status;
+            throw error;
+        } catch (error) {
+            lastError = error;
+            if (i === candidates.length - 1) {
+                throw error;
+            }
+        }
+    }
+
+    throw lastError || new Error('请求失败');
+}
+
+function getAnthropicAuthHeaderVariants(apiKey) {
+    return [
+        {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json'
+        },
+        {
+            'Authorization': `Bearer ${apiKey}`,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json'
+        }
+    ];
+}
+
+function getCustomAnthropicProbeModels(preferredModel = '') {
+    const candidates = [
+        preferredModel,
+        currentSettings.customModel,
+        'LongCat-Flash-Chat',
+        'claude-3-5-haiku-latest',
+        'claude-3-5-sonnet-latest'
+    ].map((item) => (item || '').trim()).filter(Boolean);
+    return [...new Set(candidates)];
+}
+
+async function fetchWithHeaderVariants(urlCandidates, baseOptions, headerVariants, retryStatuses = [404], acceptedStatuses = []) {
+    const authRetryStatuses = [401, 403, 404];
+    const acceptedWithoutAuthRetry = acceptedStatuses.filter((status) => !authRetryStatuses.includes(status));
+    let lastError = null;
+    for (let i = 0; i < headerVariants.length; i++) {
+        const options = {
+            ...baseOptions,
+            headers: {
+                ...(baseOptions.headers || {}),
+                ...headerVariants[i]
+            }
+        };
+        try {
+            const result = await fetchWithFallback(urlCandidates, options, retryStatuses, acceptedWithoutAuthRetry);
+            if (authRetryStatuses.includes(result.response.status) && i < headerVariants.length - 1) {
+                continue;
+            }
+            return result;
+        } catch (error) {
+            lastError = error;
+            if (authRetryStatuses.includes(error.status) && i < headerVariants.length - 1) {
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw lastError || new Error('请求失败');
+}
+
+async function probeCustomAnthropicConnection(serverUrl, apiKey, preferredModel = '') {
+    const urlCandidates = buildEndpointCandidates(serverUrl, '/messages');
+    const modelsToTry = getCustomAnthropicProbeModels(preferredModel);
+    let lastError = null;
+
+    for (let i = 0; i < modelsToTry.length; i++) {
+        const probeModel = modelsToTry[i];
+        const options = {
+            method: 'POST',
+            body: JSON.stringify({
+                model: probeModel,
+                max_tokens: 1,
+                messages: [{ role: 'user', content: 'Hi' }]
+            }),
+            credentials: 'omit'
+        };
+
+        try {
+            const result = await fetchWithHeaderVariants(
+                urlCandidates,
+                options,
+                getAnthropicAuthHeaderVariants(apiKey),
+                [404],
+                [400, 401, 403]
+            );
+            return { ...result, model: probeModel };
+        } catch (error) {
+            lastError = error;
+            if (error.status === 404 && i < modelsToTry.length - 1) {
+                continue;
+            }
+            throw error;
+        }
+    }
+
+    throw lastError || new Error('Anthropic 连接探测失败');
+}
+
 // --- API调用 ---
 async function testConnection() {
     const config = PROVIDER_CONFIG[currentProvider];
@@ -495,6 +613,7 @@ async function testConnection() {
         elements.testConnection.disabled = true;
         
         let url = config.modelsEndpoint;
+        let urlCandidates = [url];
         let options = {
             method: 'GET',
             headers: {},
@@ -503,6 +622,16 @@ async function testConnection() {
         
         if (config.apiFormat === 'openai') {
             options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            if (config.testMode === 'chat') {
+                url = config.testEndpoint || config.modelsEndpoint;
+                options.method = 'POST';
+                options.headers['content-type'] = 'application/json';
+                options.body = JSON.stringify({
+                    model: currentSettings.selectedModel || (config.fixedModels && config.fixedModels[0]) || '',
+                    max_tokens: 1,
+                    messages: [{ role: 'user', content: 'Hi' }]
+                });
+            }
             if (url.includes('openrouter.ai')) {
                 options.headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
                 options.headers['X-Title'] = 'EZ Translate';
@@ -521,15 +650,53 @@ async function testConnection() {
             url = `${url}?key=${currentSettings.apiKey}`;
         } else if (config.apiFormat === 'zhipu') {
             options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+        } else if (config.apiFormat === 'custom-openai') {
+            if (!currentSettings.serverUrl.trim()) {
+                throw new Error('请先填写 Base URL');
+            }
+            urlCandidates = buildEndpointCandidates(currentSettings.serverUrl, '/models');
+            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+        } else if (config.apiFormat === 'custom-anthropic') {
+            if (!currentSettings.serverUrl.trim()) {
+                throw new Error('请先填写 Base URL');
+            }
+            const { response } = await probeCustomAnthropicConnection(
+                currentSettings.serverUrl,
+                currentSettings.apiKey,
+                currentSettings.selectedModel || currentSettings.customModel
+            );
+            if (response.ok || response.status === 400) {
+                showStatus(`${config.name} 连接测试成功`, 'success');
+            } else if (response.status === 401 || response.status === 403) {
+                showStatus(`${config.name} 测试失败: 认证失败，请检查 API Key`, 'error');
+            } else {
+                const msg = await extractErrorMessage(response, `HTTP ${response.status}`);
+                showStatus(`${config.name} 测试失败: ${msg}`, 'error');
+            }
+            return;
         }
         
-        const response = await fetch(url, options);
+        const requestTargets = (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic')
+            ? urlCandidates
+            : [url];
+        const { response } = config.apiFormat === 'custom-anthropic'
+            ? await fetchWithHeaderVariants(
+                requestTargets,
+                options,
+                getAnthropicAuthHeaderVariants(currentSettings.apiKey),
+                [404]
+            )
+            : await fetchWithFallback(requestTargets, options, [404]);
         
         if (response.ok) {
             // 进一步验证返回的内容是否为 JSON 且不包含错误
-            const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error.message || 'API 返回了错误信息');
+            try {
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error.message || 'API 返回了错误信息');
+                }
+            } catch (e) {
+                // 某些接口探测请求可能返回空体或非 JSON，连通即可判定成功
             }
             showStatus(`${config.name} 连接测试成功！`, 'success');
         } else {
@@ -543,7 +710,11 @@ async function testConnection() {
             showStatus(`${config.name} 测试失败: ${errorMsg}`, 'error');
         }
     } catch (error) {
-        showStatus(`连接测试失败: ${error.message}`, 'error');
+        if (config.apiFormat === 'custom-anthropic' && error.status === 404) {
+            showStatus('连接测试返回 404。请检查 Base URL 是否只填服务根地址（不含 /v1、/messages 等路径），并确认模型名称可用', 'error');
+        } else {
+            showStatus(`连接测试失败: ${error.message}`, 'error');
+        }
     } finally {
         elements.testConnection.textContent = '测试连接';
         elements.testConnection.disabled = false;
@@ -558,22 +729,109 @@ async function testServerConnection() {
         elements.testServer.textContent = '测试中...';
         elements.testServer.disabled = true;
         
-        let url = currentSettings.serverUrl;
+        let url = normalizeBaseUrl(currentSettings.serverUrl);
+        let urlCandidates = [url];
+        let options = {
+            method: 'GET',
+            headers: {},
+            credentials: 'omit'
+        };
         if (currentProvider === 'ollama') {
-            url = `${url}/api/tags`;
+            urlCandidates = [`${url}/api/tags`];
+        } else if (config.apiFormat === 'custom-openai') {
+            urlCandidates = buildEndpointCandidates(url, '/models');
+            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+        } else if (config.apiFormat === 'custom-anthropic') {
+            const { response } = await probeCustomAnthropicConnection(
+                url,
+                currentSettings.apiKey,
+                currentSettings.selectedModel || currentSettings.customModel
+            );
+            if (response.ok || response.status === 400) {
+                showStatus(`${config.name} 服务器连接成功`, 'success');
+                elements.fetchModels.disabled = false;
+            } else if (response.status === 401 || response.status === 403) {
+                showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
+            } else {
+                const msg = await extractErrorMessage(response, `HTTP ${response.status}`);
+                showStatus(`${config.name} 服务器连接失败: ${msg}`, 'error');
+            }
+            return;
         } else if (config.apiFormat === 'openai') {
-            url = `${url}/v1/models`;
+            urlCandidates = [buildV1Endpoint(url, '/models')];
+        } else if (config.apiFormat === 'anthropic') {
+            urlCandidates = [config.modelsEndpoint];
+            options.method = 'POST';
+            options.headers['x-api-key'] = currentSettings.apiKey;
+            options.headers['anthropic-version'] = '2023-06-01';
+            options.headers['content-type'] = 'application/json';
+            options.body = JSON.stringify({
+                model: config.fixedModels ? config.fixedModels[0] : 'claude-3-5-haiku-latest',
+                max_tokens: 1,
+                messages: [{ role: 'user', content: 'Hi' }]
+            });
+        } else if (config.apiFormat === 'google') {
+            urlCandidates = [`${config.modelsEndpoint}?key=${currentSettings.apiKey}`];
+        } else if (config.apiFormat === 'zhipu') {
+            urlCandidates = [config.modelsEndpoint];
+            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
         }
         
-        const response = await fetch(url);
+        let response;
+        try {
+            if (config.apiFormat === 'custom-anthropic') {
+                ({ response } = await fetchWithHeaderVariants(
+                    urlCandidates,
+                    options,
+                    getAnthropicAuthHeaderVariants(currentSettings.apiKey),
+                    [404],
+                    [400, 401, 403]
+                ));
+            } else {
+                ({ response } = await fetchWithFallback(urlCandidates, options, [404], [400, 401, 403]));
+            }
+        } catch (error) {
+            // 部分 OpenAI 兼容网关不提供 /models，改为探测 /chat/completions 判断可达性
+            if (config.apiFormat === 'custom-openai') {
+                const probeCandidates = buildEndpointCandidates(url, '/chat/completions');
+                const probeOptions = {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentSettings.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: currentSettings.selectedModel || currentSettings.customModel || 'test-model',
+                        messages: [{ role: 'user', content: 'ping' }],
+                        max_tokens: 1
+                    }),
+                    credentials: 'omit'
+                };
+                ({ response } = await fetchWithFallback(probeCandidates, probeOptions, [404], [400, 401, 403]));
+            } else if (config.apiFormat === 'custom-anthropic' && (error.status === 401 || error.status === 403)) {
+                response = { ok: false, status: error.status };
+            } else {
+                throw error;
+            }
+        }
+
         if (response.ok) {
             showStatus(`${config.name} 服务器连接成功！`, 'success');
             elements.fetchModels.disabled = false;
+        } else if (response.status === 400 && (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic')) {
+            showStatus(`${config.name} 服务器可达（接口返回参数错误，通常是模型名未设置）`, 'success');
+            elements.fetchModels.disabled = false;
+        } else if (response.status === 401 || response.status === 403) {
+            showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
         } else {
             showStatus(`${config.name} 服务器连接失败，请检查地址`, 'error');
         }
     } catch (error) {
-        showStatus(`服务器连接失败: ${error.message}`, 'error');
+        if (config.apiFormat === 'custom-anthropic' && error.status === 404) {
+            showStatus('服务器测试返回 404。请检查 Base URL 是否只填服务根地址（不含 /v1、/messages 等路径），并确认模型名称可用', 'error');
+        } else {
+            showStatus(`服务器连接失败: ${error.message}`, 'error');
+        }
     } finally {
         elements.testServer.textContent = '测试连接';
         elements.testServer.disabled = false;
@@ -610,6 +868,8 @@ async function fetchModels() {
                     headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
                     headers['X-Title'] = 'EZ Translate Extension';
                 }
+            } else if (config.apiFormat === 'custom-openai') {
+                headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
             } else if (config.apiFormat === 'google') {
                 url = `${url}?key=${currentSettings.apiKey}`;
             } else if (config.apiFormat === 'anthropic') {
@@ -617,16 +877,28 @@ async function fetchModels() {
                 headers['anthropic-version'] = '2023-06-01';
             }
             
+            let urlCandidates = [url];
             // 对于本地部署的服务器
             if (config.needServerUrl && currentProvider !== 'ollama') {
-                url = `${currentSettings.serverUrl}/v1/models`;
+                if (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') {
+                    urlCandidates = buildEndpointCandidates(currentSettings.serverUrl, '/models');
+                } else {
+                    urlCandidates = [buildV1Endpoint(currentSettings.serverUrl, '/models')];
+                }
             }
             
-            const response = await fetch(url, { 
+            const baseOptions = {
                 headers,
                 credentials: 'omit'
-            });
-            if (!response.ok) throw new Error('Failed to fetch models');
+            };
+            const { response } = config.apiFormat === 'custom-anthropic'
+                ? await fetchWithHeaderVariants(
+                    urlCandidates,
+                    baseOptions,
+                    getAnthropicAuthHeaderVariants(currentSettings.apiKey),
+                    [404]
+                )
+                : await fetchWithFallback(urlCandidates, baseOptions, [404]);
             const data = await response.json();
             
             if (config.modelsFilter) {
@@ -658,7 +930,12 @@ async function fetchModels() {
         
     } catch (error) {
         elements.modelSelect.innerHTML = '<option>获取模型失败</option>';
-        showStatus(`获取模型失败: ${error.message}`, 'error');
+        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') &&
+            (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
+            showStatus('当前兼容供应商未提供模型列表接口，请勾选“使用自定义模型”并手动填写模型名', 'error');
+        } else {
+            showStatus(`获取模型失败: ${error.message}`, 'error');
+        }
     } finally {
         elements.fetchModels.textContent = '获取模型列表';
         elements.fetchModels.disabled = false;

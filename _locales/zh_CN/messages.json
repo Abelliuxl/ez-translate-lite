@@ -4,7 +4,7 @@
         "description": "扩展程序的名称。"
     },
     "appDescription": {
-        "message": "简单的 LLM 翻译工具",
+        "message": "EZ Translate 的轻量版本",
         "description": "扩展程序的描述。"
     },
     "popupTitle": {
