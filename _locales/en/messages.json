@@ -631,6 +631,18 @@
         "message": "Translate",
         "description": "Button to translate selected image region."
     },
+    "replaceInputButtonTitle": {
+        "message": "Translate and replace selected text",
+        "description": "Tooltip for the action that translates currently selected text and replaces it."
+    },
+    "replaceInputConfirmMessage": {
+        "message": "Replace selected text with the translation result?",
+        "description": "Confirmation message shown before replacing selected editable text."
+    },
+    "confirmButton": {
+        "message": "Confirm",
+        "description": "Confirm button label."
+    },
     "cancelButton": {
         "message": "Cancel",
         "description": "Cancel button label."

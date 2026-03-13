@@ -1,23 +1,114 @@
 /* content.css - 用于划词翻译的图标和浮窗样式 */
 
-#llm-translate-icon {
-    position: absolute; /* 使用 absolute 以便跟随页面滚动 */
-    background-color: #ffffff; /* 背景改为白色 */
-    border: 1px solid #e0e0e0; /* 添加细边框 */
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
+#llm-translate-toolbar {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 2147483647;
+}
+
+.llm-translate-action-btn {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 999px;
+    width: 28px;
+    height: 28px;
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-    z-index: 2147483647; /* 尝试使用最高层级 */
-    transition: transform 0.1s ease-in-out;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+    padding: 0;
 }
 
-#llm-translate-icon:hover {
-    transform: scale(1.1);
+.llm-translate-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.llm-translate-action-btn:active {
+    transform: translateY(0);
+}
+
+#llm-translate-icon-img {
+    display: block;
+}
+
+#llm-translate-replace-icon {
+    color: #1f4b99;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+#llm-translate-replace-confirm {
+    position: absolute;
+    width: 280px;
+    max-width: calc(100vw - 24px);
+    background-color: #ffffff;
+    border: 1px solid #dcdcdc;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    z-index: 2147483647;
+}
+
+.llm-translate-confirm-message {
+    color: #333;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.llm-translate-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.llm-translate-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #d9e5ff;
+    border-top-color: #1f4b99;
+    border-radius: 50%;
+    animation: llm-translate-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes llm-translate-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.llm-translate-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.llm-translate-confirm-btn {
+    border: 1px solid #d7d7d7;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #333;
+    font-size: 13px;
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+.llm-translate-confirm-btn.primary {
+    background: #1f4b99;
+    border-color: #1f4b99;
+    color: #ffffff;
+}
+
+.llm-translate-confirm-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
 }
 
 #llm-translate-popover {
@@ -33,14 +124,49 @@
     line-height: 1.6;
     color: #333;
     display: none; /* 默认隐藏 */
-    white-space: pre-wrap;
     cursor: move; /* 边缘区域显示 move 光标 */
+}
+
+#llm-translate-popover-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px 8px 16px;
+    min-height: 36px;
+    border-bottom: 1px solid #edf1f6;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #5e6777;
+    user-select: none;
+    cursor: default;
+}
+
+#llm-translate-popover-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+#llm-translate-popover-model {
+    max-width: 270px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#llm-translate-popover-thinking {
+    color: #1f4b99;
+    font-weight: 600;
+    flex-shrink: 0;
 }
 
 #llm-translate-popover-content {
     padding: 12px 16px;
     max-height: 400px;
     overflow-y: auto;
+    white-space: pre-wrap;
     user-select: text !important;
     cursor: text;
 }
@@ -64,17 +190,16 @@
 }
 
 #llm-translate-popover-copy {
-    position: absolute;
-    top: 8px;
-    right: 8px;
+    position: static;
     opacity: 0;
     transition: opacity 0.2s;
-    z-index: 10;
     background: rgba(255, 255, 255, 0.9);
     border: 1px solid #ddd;
     border-radius: 4px;
     padding: 2px 6px;
     cursor: pointer;
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 #llm-translate-popover:hover #llm-translate-popover-copy {

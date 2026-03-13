@@ -639,6 +639,26 @@
         "message": "🐛 反馈问题",
         "description": "反馈问题或建议的按钮。"
     },
+    "selectionTranslateButton": {
+        "message": "翻译",
+        "description": "选中文本后的翻译按钮。"
+    },
+    "replaceInputButtonTitle": {
+        "message": "翻译并替换选中文本",
+        "description": "用于翻译当前选中文本并替换它的按钮提示。"
+    },
+    "replaceInputConfirmMessage": {
+        "message": "确认用翻译结果替换选中文本吗？",
+        "description": "替换当前选中文本前的确认提示。"
+    },
+    "confirmButton": {
+        "message": "确认",
+        "description": "确认按钮文案。"
+    },
+    "cancelButton": {
+        "message": "取消",
+        "description": "取消按钮文案。"
+    },
     "githubEncouragement": {
         "message": "您的支持帮助我们让这个扩展变得更好！🚀",
         "description": "关于支持项目的鼓励性信息。"

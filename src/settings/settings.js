@@ -232,6 +232,8 @@ function showStatus(message, type = 'info', duration = 3000) {
 }
 
 function saveProviderSettings() {
+    const effectiveModel = getEffectiveModel(currentSettings);
+
     getStorage().get(['providerSettings'], (result) => {
         const allSettings = result.providerSettings || {};
         
@@ -241,7 +243,7 @@ function saveProviderSettings() {
             allSettings.providers[currentProvider] = {
                 apiKey: currentSettings.apiKey,
                 serverUrl: currentSettings.serverUrl,
-                selectedModel: currentSettings.selectedModel,
+                selectedModel: effectiveModel,
                 useCustomModel: currentSettings.useCustomModel,
                 customModel: currentSettings.customModel
             };
@@ -253,12 +255,36 @@ function saveProviderSettings() {
         // 为了向后兼容，保留顶层字段（可选，但为了 background.js 方便）
         allSettings.apiKey = currentSettings.apiKey;
         allSettings.serverUrl = currentSettings.serverUrl;
-        allSettings.selectedModel = currentSettings.selectedModel;
+        allSettings.selectedModel = effectiveModel;
         allSettings.useCustomModel = currentSettings.useCustomModel;
         allSettings.customModel = currentSettings.customModel;
 
         getStorage().set({ providerSettings: allSettings });
     });
+}
+
+function getProviderSettingsFromStorage(allSettings = {}, providerId = currentProvider) {
+    const providers = (allSettings.providers && typeof allSettings.providers === 'object')
+        ? allSettings.providers
+        : null;
+    const hasProvidersMap = Boolean(providers && Object.keys(providers).length > 0);
+    const providerData = (providers && providerId && providers[providerId]) || {};
+    const hasProviderData = Object.keys(providerData).length > 0;
+
+    // 仅在无 provider 映射（旧格式）或已存在当前 provider 数据时，才回退顶层字段
+    const fallbackData = (!hasProvidersMap || hasProviderData) ? allSettings : {};
+
+    const useCustomModel = providerData.useCustomModel ?? fallbackData.useCustomModel ?? false;
+    const selectedModel = ((providerData.selectedModel ?? fallbackData.selectedModel) || '').trim();
+    const customModel = ((providerData.customModel ?? fallbackData.customModel) || '').trim();
+
+    return {
+        apiKey: (providerData.apiKey ?? fallbackData.apiKey ?? '').trim(),
+        serverUrl: (providerData.serverUrl ?? fallbackData.serverUrl ?? '').trim(),
+        selectedModel: useCustomModel ? (customModel || selectedModel) : selectedModel,
+        useCustomModel,
+        customModel
+    };
 }
 
 async function loadProviderSettings() {
@@ -271,15 +297,8 @@ async function loadProviderSettings() {
         if (currentProvider) {
             elements.providerSelect.value = currentProvider;
             
-            // 加载该供应商的特定设置
-            const providerData = (allSettings.providers && allSettings.providers[currentProvider]) || {};
-            currentSettings = {
-                apiKey: providerData.apiKey || '',
-                serverUrl: providerData.serverUrl || '',
-                selectedModel: providerData.selectedModel || '',
-                useCustomModel: providerData.useCustomModel || false,
-                customModel: providerData.customModel || ''
-            };
+            // 优先加载该供应商的特定设置，并兼容旧版顶层字段
+            currentSettings = getProviderSettingsFromStorage(allSettings, currentProvider);
             
             await setupProviderConfig(currentProvider);
         }
@@ -297,15 +316,8 @@ async function setupProviderConfig(providerId) {
         const storage = getStorage();
         const result = await storage.get(['providerSettings']);
         const allSettings = result.providerSettings || {};
-        const providerData = (allSettings.providers && allSettings.providers[providerId]) || {};
-        
-        currentSettings = {
-            apiKey: providerData.apiKey || '',
-            serverUrl: providerData.serverUrl || '',
-            selectedModel: providerData.selectedModel || '',
-            useCustomModel: providerData.useCustomModel || false,
-            customModel: providerData.customModel || ''
-        };
+
+        currentSettings = getProviderSettingsFromStorage(allSettings, providerId);
     }
 
     // 显示配置区域
@@ -370,6 +382,30 @@ function hasValidCredentials() {
     return true;
 }
 
+function getEffectiveModel(settings = currentSettings) {
+    const selectedModel = (settings.selectedModel || '').trim();
+    const customModel = (settings.customModel || '').trim();
+
+    if (settings.useCustomModel) {
+        // 兼容历史数据：部分旧版本会把自定义模型仅写入 selectedModel
+        return customModel || selectedModel;
+    }
+
+    return selectedModel;
+}
+
+function hasConfiguredModel(config, settings = currentSettings) {
+    if (!config) {
+        return false;
+    }
+
+    if (Array.isArray(config.fixedModels) && config.fixedModels.length > 0) {
+        return true;
+    }
+
+    return Boolean(getEffectiveModel(settings));
+}
+
 function updateProviderSpecificHint(providerId) {
     const config = PROVIDER_CONFIG[providerId];
     let hint = '';
@@ -404,6 +440,7 @@ function populateFixedModels(models) {
 // --- 自定义模型功能 ---
 function updateCustomModelUI() {
     const isChecked = elements.customModelCheckbox.checked;
+    const previousCustomModel = currentSettings.customModel;
     elements.customModelSection.style.display = isChecked ? 'block' : 'none';
     
     if (isChecked) {
@@ -414,6 +451,8 @@ function updateCustomModelUI() {
         // 如果有自定义模型名称，设置为选中状态
         if (currentSettings.customModel) {
             currentSettings.selectedModel = currentSettings.customModel;
+        } else {
+            currentSettings.selectedModel = '';
         }
     } else {
         // 禁用自定义模型时，恢复正常状态
@@ -423,6 +462,13 @@ function updateCustomModelUI() {
         // 清空自定义模型，恢复之前的选中模型
         currentSettings.customModel = '';
         elements.customModelInput.value = '';
+
+        if (elements.modelSelect.options.length > 0) {
+            const selectedOptionValue = elements.modelSelect.value || '';
+            currentSettings.selectedModel = selectedOptionValue;
+        } else if (currentSettings.selectedModel === previousCustomModel) {
+            currentSettings.selectedModel = '';
+        }
     }
 }
 
@@ -602,6 +648,7 @@ async function probeCustomAnthropicConnection(serverUrl, apiKey, preferredModel 
 async function testConnection() {
     const config = PROVIDER_CONFIG[currentProvider];
     if (!config) return;
+    const effectiveModel = getEffectiveModel();
     
     if (!currentSettings.apiKey.trim()) {
         showStatus('请输入 API 密钥后再进行测试', 'error');
@@ -627,7 +674,7 @@ async function testConnection() {
                 options.method = 'POST';
                 options.headers['content-type'] = 'application/json';
                 options.body = JSON.stringify({
-                    model: currentSettings.selectedModel || (config.fixedModels && config.fixedModels[0]) || '',
+                    model: effectiveModel || (config.fixedModels && config.fixedModels[0]) || '',
                     max_tokens: 1,
                     messages: [{ role: 'user', content: 'Hi' }]
                 });
@@ -663,10 +710,14 @@ async function testConnection() {
             const { response } = await probeCustomAnthropicConnection(
                 currentSettings.serverUrl,
                 currentSettings.apiKey,
-                currentSettings.selectedModel || currentSettings.customModel
+                effectiveModel
             );
             if (response.ok || response.status === 400) {
-                showStatus(`${config.name} 连接测试成功`, 'success');
+                if (hasConfiguredModel(config)) {
+                    showStatus(`${config.name} 连接测试成功`, 'success');
+                } else {
+                    showStatus(`${config.name} 接口可达，但尚未选择模型，翻译时会失败`, 'info');
+                }
             } else if (response.status === 401 || response.status === 403) {
                 showStatus(`${config.name} 测试失败: 认证失败，请检查 API Key`, 'error');
             } else {
@@ -698,7 +749,11 @@ async function testConnection() {
             } catch (e) {
                 // 某些接口探测请求可能返回空体或非 JSON，连通即可判定成功
             }
-            showStatus(`${config.name} 连接测试成功！`, 'success');
+            if (hasConfiguredModel(config)) {
+                showStatus(`${config.name} 连接测试成功！`, 'success');
+            } else {
+                showStatus(`${config.name} 接口可达，但尚未选择模型，翻译时会失败`, 'info');
+            }
         } else {
             let errorMsg = 'API 密钥无效或请求失败';
             try {
@@ -724,6 +779,7 @@ async function testConnection() {
 async function testServerConnection() {
     const config = PROVIDER_CONFIG[currentProvider];
     if (!config) return;
+    const effectiveModel = getEffectiveModel();
     
     try {
         elements.testServer.textContent = '测试中...';
@@ -745,10 +801,14 @@ async function testServerConnection() {
             const { response } = await probeCustomAnthropicConnection(
                 url,
                 currentSettings.apiKey,
-                currentSettings.selectedModel || currentSettings.customModel
+                effectiveModel
             );
             if (response.ok || response.status === 400) {
-                showStatus(`${config.name} 服务器连接成功`, 'success');
+                if (hasConfiguredModel(config)) {
+                    showStatus(`${config.name} 服务器连接成功`, 'success');
+                } else {
+                    showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
+                }
                 elements.fetchModels.disabled = false;
             } else if (response.status === 401 || response.status === 403) {
                 showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
@@ -793,6 +853,9 @@ async function testServerConnection() {
         } catch (error) {
             // 部分 OpenAI 兼容网关不提供 /models，改为探测 /chat/completions 判断可达性
             if (config.apiFormat === 'custom-openai') {
+                if (!effectiveModel) {
+                    throw new Error('当前服务未提供 /models 接口，请先选择模型或填写自定义模型后再测试');
+                }
                 const probeCandidates = buildEndpointCandidates(url, '/chat/completions');
                 const probeOptions = {
                     method: 'POST',
@@ -801,7 +864,7 @@ async function testServerConnection() {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        model: currentSettings.selectedModel || currentSettings.customModel || 'test-model',
+                        model: effectiveModel,
                         messages: [{ role: 'user', content: 'ping' }],
                         max_tokens: 1
                     }),
@@ -816,10 +879,18 @@ async function testServerConnection() {
         }
 
         if (response.ok) {
-            showStatus(`${config.name} 服务器连接成功！`, 'success');
+            if (hasConfiguredModel(config)) {
+                showStatus(`${config.name} 服务器连接成功！`, 'success');
+            } else {
+                showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
+            }
             elements.fetchModels.disabled = false;
         } else if (response.status === 400 && (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic')) {
-            showStatus(`${config.name} 服务器可达（接口返回参数错误，通常是模型名未设置）`, 'success');
+            if (hasConfiguredModel(config)) {
+                showStatus(`${config.name} 服务器可达（接口返回参数错误，请检查模型名或请求格式）`, 'info');
+            } else {
+                showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
+            }
             elements.fetchModels.disabled = false;
         } else if (response.status === 401 || response.status === 403) {
             showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
@@ -1036,6 +1107,7 @@ function setupEventListeners() {
         const providerId = e.target.value;
         if (providerId) {
             await setupProviderConfig(providerId);
+            saveProviderSettings();
         } else {
             elements.providerConfig.style.display = 'none';
         }

@@ -1,226 +1,844 @@
-// content.js - 负责划词翻译的 UI 和交互 (v2 - 修复版)
+// content.js - 负责划词翻译的 UI 和交互
 
 // --- 存储辅助函数 ---
-// 获取同步开关状态并返回相应的存储对象
 async function getStorage() {
     return new Promise((resolve) => {
-        chrome.storage.local.get(['syncEnabled'], (result) => {
-            const syncEnabled = result.syncEnabled || false;
-            resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
-        });
+        if (!isExtensionContextValid()) {
+            resolve(null);
+            return;
+        }
+
+        try {
+            chrome.storage.local.get(['syncEnabled'], (result) => {
+                const syncEnabled = result.syncEnabled || false;
+                resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
+            });
+        } catch (error) {
+            handleExtensionError(error);
+            resolve(null);
+        }
     });
 }
 
+const TRANSLATE_UI_SELECTOR = '#llm-translate-toolbar, #llm-translate-popover, #llm-translate-replace-confirm';
+const EDITABLE_SELECTOR = 'textarea, input, [contenteditable]:not([contenteditable="false"])';
+const SUPPORTED_INPUT_TYPES = new Set([
+    'text',
+    'search',
+    'url',
+    'tel',
+    'email',
+    'password'
+]);
+
+const langKeyToEnName = {
+    'langEnglish': 'English',
+    'langSimplifiedChinese': 'Simplified Chinese',
+    'langTraditionalChinese': 'Traditional Chinese',
+    'langFrench': 'French',
+    'langSpanish': 'Spanish',
+    'langArabic': 'Arabic',
+    'langRussian': 'Russian',
+    'langPortuguese': 'Portuguese',
+    'langGerman': 'German',
+    'langItalian': 'Italian',
+    'langDutch': 'Dutch',
+    'langDanish': 'Danish',
+    'langJapanese': 'Japanese',
+    'langKorean': 'Korean',
+    'langVietnamese': 'Vietnamese',
+    'langThai': 'Thai',
+    'langIndonesian': 'Indonesian',
+    'langHindi': 'Hindi',
+    'langTurkish': 'Turkish',
+    'langPolish': 'Polish',
+    'langFinnish': 'Finnish',
+    'langHungarian': 'Hungarian',
+    'langCzech': 'Czech',
+    'langGreek': 'Greek',
+    'langRomanian': 'Romanian',
+    'langSlovak': 'Slovak'
+};
+
+const aliasToEnName = {
+    '中文': 'Simplified Chinese',
+    '简体中文': 'Simplified Chinese',
+    '繁體中文': 'Traditional Chinese',
+    '繁体中文': 'Traditional Chinese',
+    '英语': 'English',
+    '英文': 'English',
+    '日语': 'Japanese',
+    '日本語': 'Japanese',
+    '韩语': 'Korean',
+    '韓國語': 'Korean',
+    '한국어': 'Korean'
+};
+
 // --- 全局变量 ---
-let translateIcon = null;
+let actionToolbar = null;
 let resultPopover = null;
-let isEnabled = true; // 默认启用
+let replaceConfirmPopover = null;
+let isEnabled = true;
+let extensionContextInvalidated = false;
+let pendingSelectionTimer = null;
+let lastPointerClientX = 0;
+let lastPointerClientY = 0;
+let lastEditableSelectionContext = null;
+let lastEditableSelectionAt = 0;
+let gestureTextControl = null;
+let activeTranslationRequestId = null;
+let thinkingAnimationTimer = null;
+let thinkingDotCount = 0;
+let runtimeMessageListenerBound = false;
+const EDITABLE_SELECTION_CACHE_TTL = 1200;
+const THINKING_PLACEHOLDER_BASE = '思考中';
 
 // --- 初始化和设置监听 ---
-// 首次加载时获取设置
-chrome.storage.local.get('isSelectionTranslationEnabled', (result) => {
-    // 如果未设置，则默认为 true
-    isEnabled = result.isSelectionTranslationEnabled !== false;
-});
+initializeExtensionState();
 
-// 监听设置变化（同时监听 local 和 sync 命名空间）
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (changes.isSelectionTranslationEnabled) {
-        isEnabled = changes.isSelectionTranslationEnabled.newValue;
-        // 如果禁用了，立即移除现有UI
-        if (!isEnabled) {
-            removeTranslationUI();
-        }
+function initializeExtensionState() {
+    if (!isExtensionContextValid()) return;
+
+    bindRuntimeMessageListener();
+
+    try {
+        chrome.storage.local.get('isSelectionTranslationEnabled', (result) => {
+            isEnabled = result.isSelectionTranslationEnabled !== false;
+        });
+    } catch (error) {
+        handleExtensionError(error);
     }
-});
 
+    try {
+        chrome.storage.onChanged.addListener((changes) => {
+            if (changes.isSelectionTranslationEnabled) {
+                isEnabled = changes.isSelectionTranslationEnabled.newValue;
+                if (!isEnabled) {
+                    removeTranslationUI();
+                }
+            }
+        });
+    } catch (error) {
+        handleExtensionError(error);
+    }
+}
+
+function bindRuntimeMessageListener() {
+    if (runtimeMessageListenerBound || !isExtensionContextValid()) {
+        return;
+    }
+
+    try {
+        chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+        runtimeMessageListenerBound = true;
+    } catch (error) {
+        handleExtensionError(error);
+    }
+}
+
+function handleRuntimeMessage(message) {
+    if (!message || message.type !== 'translation_stream') {
+        return;
+    }
+
+    if (!activeTranslationRequestId || message.requestId !== activeTranslationRequestId) {
+        return;
+    }
+
+    applyTranslationStreamUpdate(message);
+}
+
+function isExtensionContextValid() {
+    if (extensionContextInvalidated) {
+        return false;
+    }
+
+    try {
+        if (!chrome?.runtime?.id) {
+            extensionContextInvalidated = true;
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        handleExtensionError(error);
+        return false;
+    }
+}
+
+function handleExtensionError(error) {
+    const message = error?.message || String(error || '');
+    if (message.includes('Extension context invalidated')) {
+        extensionContextInvalidated = true;
+    }
+}
+
+function toUserErrorMessage(error) {
+    const message = error?.message || String(error || '');
+    if (message.includes('Extension context invalidated')) {
+        extensionContextInvalidated = true;
+        return getRefreshRequiredMessage();
+    }
+
+    return message;
+}
+
+function getRefreshRequiredMessage() {
+    return navigator.language?.toLowerCase().startsWith('zh')
+        ? '扩展已更新，请刷新当前页面后重试。'
+        : 'The extension was updated. Refresh this page and try again.';
+}
+
+function getMessage(key, fallback) {
+    if (!isExtensionContextValid()) {
+        return fallback;
+    }
+
+    try {
+        return chrome.i18n.getMessage(key) || fallback;
+    } catch (error) {
+        handleExtensionError(error);
+        return fallback;
+    }
+}
+
+function getRuntimeUrl(path) {
+    if (!isExtensionContextValid()) {
+        return '';
+    }
+
+    try {
+        return chrome.runtime.getURL(path);
+    } catch (error) {
+        handleExtensionError(error);
+        return '';
+    }
+}
+
+function setLastSelectedText(text) {
+    if (!isExtensionContextValid()) {
+        return;
+    }
+
+    try {
+        chrome.storage.local.set({ lastSelectedText: text });
+    } catch (error) {
+        handleExtensionError(error);
+    }
+}
 
 // --- 事件监听 ---
-
-// 监听鼠标抬起事件，用于显示翻译图标
 document.addEventListener('mouseup', (event) => {
-    // 如果功能被禁用，则不执行任何操作
     if (!isEnabled) return;
+    updateLastPointerPosition(event);
+    scheduleSelectionToolbar(event);
+});
 
-    // 如果事件的目标是我们的UI，则不处理，避免冲突
-    if (event.target.id?.startsWith('llm-translate-')) return;
-    
-    // 移除已有的UI
+document.addEventListener('mousedown', (event) => {
+    updateLastPointerPosition(event);
+    gestureTextControl = resolveGestureTextControl(event.target);
+    if (isTranslateUiTarget(event.target)) return;
     removeTranslationUI();
+});
 
-    const selectedText = window.getSelection().toString().trim();
-    if (selectedText.length > 0) {
-        // 保存文本以备 popup 使用
-        chrome.storage.local.set({ 'lastSelectedText': selectedText });
-        // 创建翻译图标
-        createTranslateIcon(event.clientX, event.clientY, selectedText);
+document.addEventListener('mousemove', (event) => {
+    if ((event.buttons & 1) === 1) {
+        updateLastPointerPosition(event);
     }
 });
 
-// 监听鼠标按下事件，用于在开始新的操作时移除UI
-document.addEventListener('mousedown', (event) => {
-    // 如果点击的不是我们的UI，则移除它
-    const target = event.target;
-    if (!target || !(target instanceof Element) || !target.closest('#llm-translate-icon, #llm-translate-popover')) {
+document.addEventListener('select', (event) => {
+    if (!isEnabled) return;
+    if (isTranslateUiTarget(event.target)) return;
+
+    queueSelectionToolbarCheck(
+        event.target,
+        getFallbackPointerX(),
+        getFallbackPointerY(),
+        0
+    );
+}, true);
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        cancelPendingSelectionToolbar();
         removeTranslationUI();
     }
 });
 
-// 监听键盘事件，ESC 键关闭弹窗
-document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-        const popover = document.querySelector('#llm-translate-popover');
-        if (popover) {
-            removeTranslationUI();
-        }
-    }
-});
+function scheduleSelectionToolbar(event) {
+    const target = event.target;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
 
-
-// --- UI 创建与销毁 ---
-
-/**
- * 创建翻译小图标
- * @param {number} x - 鼠标X坐标
- * @param {number} y - 鼠标Y坐标
- * @param {string} text - 选中的文本
- */
-function createTranslateIcon(x, y, text) {
-    translateIcon = document.createElement('div');
-    translateIcon.id = 'llm-translate-icon';
-    translateIcon.style.left = `${x + window.scrollX}px`;
-    translateIcon.style.top = `${y + window.scrollY + 15}px`;
-    
-    // 使用 chrome.runtime.getURL() 加载真实的图标文件
-    const iconImg = document.createElement('img');
-    iconImg.id = 'llm-translate-icon-img';
-    iconImg.src = chrome.runtime.getURL('icons/icon48.png');
-    // 遵从您的指示，将尺寸设置为 20x20
-    iconImg.style.width = '20px';
-    iconImg.style.height = '20px';
-    translateIcon.appendChild(iconImg);
-
-    // 阻止 mouseup 事件冒泡，避免冲突
-    translateIcon.addEventListener('mouseup', (e) => {
-        e.stopPropagation();
-    });
-
-    translateIcon.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const storage = await getStorage();
-        const { targetLanguage, secondTargetLanguage } = await storage.get(['targetLanguage', 'secondTargetLanguage']);
-        // 存储中保存的是语言键（如 langEnglish）。但为了兼容历史数据，做健壮处理。
-        const storedPrimary = targetLanguage || 'langSimplifiedChinese';
-        const storedSecondary = secondTargetLanguage || 'langEnglish';
-
-        // Convert language keys to language names（英文名传给后端提示词使用）
-        const langKeyToEnName = {
-            'langEnglish': 'English',
-            'langSimplifiedChinese': 'Simplified Chinese',
-            'langTraditionalChinese': 'Traditional Chinese',
-            'langFrench': 'French',
-            'langSpanish': 'Spanish',
-            'langArabic': 'Arabic',
-            'langRussian': 'Russian',
-            'langPortuguese': 'Portuguese',
-            'langGerman': 'German',
-            'langItalian': 'Italian',
-            'langDutch': 'Dutch',
-            'langDanish': 'Danish',
-            'langJapanese': 'Japanese',
-            'langKorean': 'Korean',
-            'langVietnamese': 'Vietnamese',
-            'langThai': 'Thai',
-            'langIndonesian': 'Indonesian',
-            'langHindi': 'Hindi',
-            'langTurkish': 'Turkish',
-            'langPolish': 'Polish',
-            'langFinnish': 'Finnish',
-            'langHungarian': 'Hungarian',
-            'langCzech': 'Czech',
-            'langGreek': 'Greek',
-            'langRomanian': 'Romanian',
-            'langSlovak': 'Slovak'
-        };
-
-        // 兼容三种输入：语言键、英文名、其他（回退 English）
-        const normalizeToEnName = (input) => {
-            if (!input) return 'English';
-            if (langKeyToEnName[input]) return langKeyToEnName[input];
-            // 常见本地化/别名归一
-            const aliasToEnName = {
-                '中文': 'Simplified Chinese',
-                '简体中文': 'Simplified Chinese',
-                '繁體中文': 'Traditional Chinese',
-                '繁体中文': 'Traditional Chinese',
-                '英语': 'English',
-                '英文': 'English',
-                '日语': 'Japanese',
-                '日本語': 'Japanese',
-                '韩语': 'Korean',
-                '韓國語': 'Korean',
-                '한국어': 'Korean'
-            };
-            if (aliasToEnName[input]) return aliasToEnName[input];
-            // 若已是英文名称（来自旧版本或手动写入），直接使用
-            const values = Object.values(langKeyToEnName);
-            if (values.includes(input)) return input;
-            return 'English';
-        };
-
-        const targetLanguageName = normalizeToEnName(storedPrimary);
-        const secondTargetLanguageName = normalizeToEnName(storedSecondary);
-        
-        showResultPopover(x, y, chrome.i18n.getMessage('statusTranslating'));
-        chrome.runtime.sendMessage({ 
-            type: 'translate', 
-            text, 
-            targetLanguage: targetLanguageName,
-            secondTargetLanguage: secondTargetLanguageName
-        }, (response) => {
-            if (response.error) {
-                updateResultPopover(response.error);
-            } else {
-                updateResultPopover(response.translation);
-            }
-        });
-        translateIcon.remove();
-        translateIcon = null;
-    });
-
-    document.body.appendChild(translateIcon);
+    queueSelectionToolbarCheck(target, clientX, clientY, 0);
 }
 
-/**
- * 显示或创建结果浮窗
- */
-function showResultPopover(x, y, content) {
+function queueSelectionToolbarCheck(target, clientX, clientY, attempt) {
+    cancelPendingSelectionToolbar();
+
+    pendingSelectionTimer = window.setTimeout(() => {
+        pendingSelectionTimer = null;
+        const shown = tryShowSelectionToolbar(target, clientX, clientY);
+
+        // 某些站点会异步更新选区，做几次短重试
+        if (!shown && attempt < 2) {
+            queueSelectionToolbarCheck(target, clientX, clientY, attempt + 1);
+        }
+    }, attempt === 0 ? 0 : 24);
+}
+
+function tryShowSelectionToolbar(target, clientX, clientY) {
+    if (!isEnabled) return false;
+    if (isTranslateUiTarget(target)) return false;
+
+    removeTranslationUI();
+
+    const editableContext = getEditableSelectionContext(target)
+        || getGestureTextControlSelectionContext()
+        || getRecentEditableSelectionContext();
+    const selectedText = editableContext
+        ? editableContext.selectedText
+        : window.getSelection().toString().trim();
+
+    if (!selectedText) return false;
+
+    if (!isExtensionContextValid()) {
+        showResultPopover(clientX, clientY, getRefreshRequiredMessage());
+        return true;
+    }
+
+    setLastSelectedText(selectedText);
+    createSelectionToolbar(clientX, clientY, selectedText, editableContext);
+    return true;
+}
+
+function cancelPendingSelectionToolbar() {
+    if (pendingSelectionTimer !== null) {
+        clearTimeout(pendingSelectionTimer);
+        pendingSelectionTimer = null;
+    }
+}
+
+function updateLastPointerPosition(event) {
+    if (typeof event.clientX === 'number') {
+        lastPointerClientX = event.clientX;
+    }
+    if (typeof event.clientY === 'number') {
+        lastPointerClientY = event.clientY;
+    }
+}
+
+function getFallbackPointerX() {
+    if (lastPointerClientX !== 0) return lastPointerClientX;
+    return Math.round(window.innerWidth / 2);
+}
+
+function getFallbackPointerY() {
+    if (lastPointerClientY !== 0) return lastPointerClientY;
+    return Math.round(window.innerHeight / 2);
+}
+
+// --- 选择与输入区检测 ---
+function getEditableSelectionContext(target) {
+    return getTextControlSelectionContext(target) || getContentEditableSelectionContext(target);
+}
+
+function getTextControlSelectionContext(target) {
+    const element = getClosestTextControl(target) || getActiveTextControl();
+    return buildTextControlSelectionContext(element);
+}
+
+function buildTextControlSelectionContext(element) {
+    if (!(element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement)) {
+        return null;
+    }
+
+    if (!isSupportedTextControl(element) || element.readOnly || element.disabled) {
+        return null;
+    }
+
+    const start = element.selectionStart;
+    const end = element.selectionEnd;
+    if (typeof start !== 'number' || typeof end !== 'number' || start === end) {
+        return null;
+    }
+
+    const selectedText = element.value.slice(start, end).trim();
+    if (!selectedText) {
+        return null;
+    }
+
+    const context = {
+        type: 'text-control',
+        element,
+        selectedText,
+        fullText: element.value,
+        selectionStart: start,
+        selectionEnd: end
+    };
+    rememberEditableSelectionContext(context);
+    return context;
+}
+
+function resolveGestureTextControl(target) {
+    const element = getClosestTextControl(target);
+    if (!(element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement)) {
+        return null;
+    }
+
+    if (!isSupportedTextControl(element) || element.readOnly || element.disabled) {
+        return null;
+    }
+
+    return element;
+}
+
+function getGestureTextControlSelectionContext() {
+    if (!gestureTextControl || !gestureTextControl.isConnected) {
+        return null;
+    }
+
+    return buildTextControlSelectionContext(gestureTextControl);
+}
+
+function getClosestTextControl(target) {
+    return getClosestElement(target, 'textarea, input');
+}
+
+function getActiveTextControl() {
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        return active;
+    }
+    return null;
+}
+
+function getContentEditableSelectionContext(target) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return null;
+    }
+
+    const targetHost = getClosestEditableHost(target);
+    const anchorHost = getClosestEditableHost(selection.anchorNode);
+    const focusHost = getClosestEditableHost(selection.focusNode);
+
+    if (!targetHost || targetHost !== anchorHost || anchorHost !== focusHost) {
+        return null;
+    }
+
+    const selectedText = selection.toString().trim();
+    const fullText = targetHost.innerText || targetHost.textContent || '';
+    if (!selectedText || !fullText.trim()) {
+        return null;
+    }
+
+    const selectedRange = cloneCurrentSelectionRange(selection);
+    if (!selectedRange) {
+        return null;
+    }
+
+    const context = {
+        type: 'contenteditable',
+        element: targetHost,
+        selectedText,
+        fullText,
+        selectedRange
+    };
+    rememberEditableSelectionContext(context);
+    return context;
+}
+
+function cloneCurrentSelectionRange(selection) {
+    try {
+        if (!selection || selection.rangeCount === 0) {
+            return null;
+        }
+        return selection.getRangeAt(0).cloneRange();
+    } catch (error) {
+        return null;
+    }
+}
+
+function rememberEditableSelectionContext(context) {
+    if (!context || !context.element) {
+        return;
+    }
+
+    if (context.type === 'contenteditable' && context.selectedRange) {
+        lastEditableSelectionContext = {
+            ...context,
+            selectedRange: context.selectedRange.cloneRange()
+        };
+    } else {
+        lastEditableSelectionContext = { ...context };
+    }
+    lastEditableSelectionAt = Date.now();
+}
+
+function getRecentEditableSelectionContext() {
+    if (!lastEditableSelectionContext) {
+        return null;
+    }
+
+    if (Date.now() - lastEditableSelectionAt > EDITABLE_SELECTION_CACHE_TTL) {
+        clearEditableSelectionContextCache();
+        return null;
+    }
+
+    const context = lastEditableSelectionContext;
+    if (!context.element || !context.element.isConnected) {
+        clearEditableSelectionContextCache();
+        return null;
+    }
+
+    if (context.type === 'text-control') {
+        const start = context.element.selectionStart;
+        const end = context.element.selectionEnd;
+        if (typeof start !== 'number' || typeof end !== 'number' || start === end) {
+            return null;
+        }
+
+        return {
+            ...context,
+            selectedText: context.element.value.slice(start, end).trim(),
+            fullText: context.element.value,
+            selectionStart: start,
+            selectionEnd: end
+        };
+    }
+
+    if (context.type === 'contenteditable') {
+        return {
+            ...context,
+            selectedRange: context.selectedRange ? context.selectedRange.cloneRange() : null
+        };
+    }
+
+    return null;
+}
+
+function clearEditableSelectionContextCache() {
+    lastEditableSelectionContext = null;
+    lastEditableSelectionAt = 0;
+}
+
+function isSupportedTextControl(element) {
+    if (element instanceof HTMLTextAreaElement) {
+        return true;
+    }
+
+    if (!(element instanceof HTMLInputElement)) {
+        return false;
+    }
+
+    const type = (element.type || 'text').toLowerCase();
+    return SUPPORTED_INPUT_TYPES.has(type);
+}
+
+function getClosestEditableHost(node) {
+    const element = node instanceof Element ? node : node?.parentElement;
+    if (!element) {
+        return null;
+    }
+
+    const editableHost = element.closest(EDITABLE_SELECTOR);
+    if (!editableHost) {
+        return null;
+    }
+
+    if (editableHost instanceof HTMLInputElement || editableHost instanceof HTMLTextAreaElement) {
+        return editableHost;
+    }
+
+    return editableHost.isContentEditable ? editableHost : null;
+}
+
+function getClosestElement(node, selector) {
+    const element = node instanceof Element ? node : node?.parentElement;
+    return element ? element.closest(selector) : null;
+}
+
+function isTranslateUiTarget(target) {
+    return Boolean(getClosestElement(target, TRANSLATE_UI_SELECTOR));
+}
+
+// --- 翻译请求 ---
+async function requestTranslation(text, options = {}) {
+    if (!isExtensionContextValid()) {
+        throw new Error(getRefreshRequiredMessage());
+    }
+
+    const { stream = false, requestId = '' } = options;
+    const { targetLanguage, secondTargetLanguage } = await getTranslationLanguages();
+
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({
+                type: 'translate',
+                text,
+                targetLanguage,
+                secondTargetLanguage,
+                stream,
+                requestId
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(toUserErrorMessage(chrome.runtime.lastError)));
+                    return;
+                }
+
+                if (!response) {
+                    reject(new Error('未收到翻译结果'));
+                    return;
+                }
+
+                if (response.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+
+                const translationText = typeof response.translation === 'string'
+                    ? response.translation
+                    : String(response.translation ?? '');
+
+                resolve({
+                    translation: translationText,
+                    model: response.model || ''
+                });
+            });
+        } catch (error) {
+            reject(new Error(toUserErrorMessage(error)));
+        }
+    });
+}
+
+function createTranslationRequestId() {
+    const randomSuffix = Math.random().toString(36).slice(2, 8);
+    return `tx-${Date.now()}-${randomSuffix}`;
+}
+
+async function getTranslationLanguages() {
+    const storage = await getStorage();
+    if (!storage) {
+        throw new Error(getRefreshRequiredMessage());
+    }
+
+    let languageSettings;
+    try {
+        languageSettings = await storage.get(['targetLanguage', 'secondTargetLanguage']);
+    } catch (error) {
+        throw new Error(toUserErrorMessage(error));
+    }
+
+    const { targetLanguage, secondTargetLanguage } = languageSettings;
+
+    return {
+        targetLanguage: normalizeToEnName(targetLanguage || 'langSimplifiedChinese'),
+        secondTargetLanguage: normalizeToEnName(secondTargetLanguage || 'langEnglish')
+    };
+}
+
+function normalizeToEnName(input) {
+    if (!input) return 'English';
+    if (langKeyToEnName[input]) return langKeyToEnName[input];
+    if (aliasToEnName[input]) return aliasToEnName[input];
+
+    const knownNames = Object.values(langKeyToEnName);
+    return knownNames.includes(input) ? input : 'English';
+}
+
+// --- UI 创建 ---
+function createSelectionToolbar(x, y, selectedText, editableContext) {
+    actionToolbar = document.createElement('div');
+    actionToolbar.id = 'llm-translate-toolbar';
+    actionToolbar.addEventListener('mousedown', stopPropagation);
+    actionToolbar.addEventListener('mouseup', stopPropagation);
+
+    const translateButton = document.createElement('button');
+    translateButton.type = 'button';
+    translateButton.id = 'llm-translate-icon';
+    translateButton.className = 'llm-translate-action-btn';
+    translateButton.title = getMessage('selectionTranslateButton', 'Translate');
+    translateButton.addEventListener('mousedown', preventFocusSteal);
+
+    const iconImg = document.createElement('img');
+    iconImg.id = 'llm-translate-icon-img';
+    iconImg.src = getRuntimeUrl('icons/icon48.png');
+    iconImg.alt = '';
+    iconImg.width = 20;
+    iconImg.height = 20;
+    translateButton.appendChild(iconImg);
+
+    translateButton.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        removeSelectionActionUI();
+        const requestId = createTranslationRequestId();
+        activeTranslationRequestId = requestId;
+        showResultPopover(x, y, getMessage('statusTranslating', 'Translating...'), true);
+        setResultPopoverModel('');
+        setResultPopoverThinking(false);
+
+        try {
+            const result = await requestTranslation(selectedText, {
+                stream: true,
+                requestId
+            });
+
+            if (activeTranslationRequestId !== requestId) {
+                return;
+            }
+
+            if (result.model) {
+                setResultPopoverModel(result.model);
+            }
+
+            if (result.translation) {
+                updateResultPopover(result.translation);
+            }
+            setResultPopoverThinking(false);
+        } catch (error) {
+            if (activeTranslationRequestId !== requestId) {
+                return;
+            }
+            setResultPopoverThinking(false);
+            updateResultPopover(toUserErrorMessage(error));
+        }
+    });
+
+    actionToolbar.appendChild(translateButton);
+
+    if (editableContext && editableContext.fullText.trim()) {
+        const replaceButton = document.createElement('button');
+        replaceButton.type = 'button';
+        replaceButton.id = 'llm-translate-replace-icon';
+        replaceButton.className = 'llm-translate-action-btn';
+        replaceButton.title = getMessage('replaceInputButtonTitle', 'Translate and replace selected text');
+        replaceButton.textContent = 'T';
+        replaceButton.addEventListener('mousedown', preventFocusSteal);
+
+        replaceButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            showReplaceConfirmPopover(event.clientX, event.clientY, editableContext);
+        });
+
+        actionToolbar.appendChild(replaceButton);
+    }
+
+    document.body.appendChild(actionToolbar);
+    positionFloatingElement(actionToolbar, x, y);
+}
+
+function showReplaceConfirmPopover(x, y, editableContext) {
+    removeReplaceConfirmPopover();
+
+    replaceConfirmPopover = document.createElement('div');
+    replaceConfirmPopover.id = 'llm-translate-replace-confirm';
+    replaceConfirmPopover.innerHTML = `
+        <div class="llm-translate-confirm-message"></div>
+        <div class="llm-translate-confirm-actions">
+            <button type="button" class="llm-translate-confirm-btn" data-action="cancel"></button>
+            <button type="button" class="llm-translate-confirm-btn primary" data-action="confirm"></button>
+        </div>
+    `;
+
+    replaceConfirmPopover.addEventListener('mousedown', stopPropagation);
+    replaceConfirmPopover.addEventListener('mouseup', stopPropagation);
+
+    const message = replaceConfirmPopover.querySelector('.llm-translate-confirm-message');
+    const cancelButton = replaceConfirmPopover.querySelector('[data-action="cancel"]');
+    const confirmButton = replaceConfirmPopover.querySelector('[data-action="confirm"]');
+    cancelButton.addEventListener('mousedown', preventFocusSteal);
+    confirmButton.addEventListener('mousedown', preventFocusSteal);
+
+    renderStatusContent(
+        message,
+        getMessage('replaceInputConfirmMessage', 'Replace selected text with the translation result?'),
+        false
+    );
+    cancelButton.textContent = getMessage('cancelButton', 'Cancel');
+    confirmButton.textContent = getMessage('confirmButton', 'Confirm');
+
+    cancelButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        removeReplaceConfirmPopover();
+    });
+
+    confirmButton.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setReplaceConfirmState({
+            message: getMessage('statusTranslating', 'Translating...'),
+            loading: true
+        });
+
+        try {
+            const requestId = createTranslationRequestId();
+            const { translation } = await requestTranslation(editableContext.selectedText, {
+                stream: true,
+                requestId
+            });
+            if (!translation.trim()) {
+                throw new Error('翻译结果为空，未执行替换');
+            }
+            replaceEditableSelection(editableContext, translation);
+            removeTranslationUI();
+        } catch (error) {
+            setReplaceConfirmState({
+                message: toUserErrorMessage(error),
+                loading: false
+            });
+        }
+    });
+
+    document.body.appendChild(replaceConfirmPopover);
+    positionFloatingElement(replaceConfirmPopover, x, y, 14);
+}
+
+function setReplaceConfirmState({ message, loading }) {
+    if (!replaceConfirmPopover) return;
+
+    const messageElement = replaceConfirmPopover.querySelector('.llm-translate-confirm-message');
+    const buttons = replaceConfirmPopover.querySelectorAll('.llm-translate-confirm-btn');
+
+    renderStatusContent(messageElement, message, loading);
+
+    buttons.forEach((button) => {
+        button.disabled = loading;
+    });
+}
+
+function showResultPopover(x, y, content, loading = false) {
     if (!resultPopover) {
         resultPopover = document.createElement('div');
         resultPopover.id = 'llm-translate-popover';
         resultPopover.innerHTML = `
-            <button class="llm-translate-copy-btn small" id="llm-translate-popover-copy" title="复制翻译">📋</button>
+            <div id="llm-translate-popover-meta">
+                <div id="llm-translate-popover-meta-left">
+                    <span id="llm-translate-popover-model">模型：--</span>
+                    <span id="llm-translate-popover-thinking" style="display: none;"></span>
+                </div>
+                <button class="llm-translate-copy-btn small" id="llm-translate-popover-copy" title="${getMessage('copyTranslation', 'Copy translation')}">📋</button>
+            </div>
             <div id="llm-translate-popover-content"></div>
         `;
         document.body.appendChild(resultPopover);
-        
-        // 使普通浮窗可拖拽
+
         makeDraggable(resultPopover);
+        resultPopover.addEventListener('mousedown', stopPropagation);
+        resultPopover.addEventListener('mouseup', stopPropagation);
 
-        // 阻止 mousedown 冒泡，防止触发全局关闭逻辑
-        resultPopover.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-        });
-
-        // 添加复制按钮事件
         const copyBtn = resultPopover.querySelector('#llm-translate-popover-copy');
-        copyBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        copyBtn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
             const contentDiv = resultPopover.querySelector('#llm-translate-popover-content');
             const textToCopy = contentDiv.textContent;
-            
+
             try {
                 await navigator.clipboard.writeText(textToCopy);
                 const originalText = copyBtn.textContent;
@@ -228,112 +846,397 @@ function showResultPopover(x, y, content) {
                 setTimeout(() => {
                     copyBtn.textContent = originalText;
                 }, 1500);
-            } catch (err) {
-                console.error('复制失败:', err);
+            } catch (error) {
+                console.error('复制失败:', error);
             }
         });
     }
-    resultPopover.style.left = `${x + window.scrollX}px`;
-    resultPopover.style.top = `${y + window.scrollY + 15}px`;
-    resultPopover.querySelector('#llm-translate-popover-content').textContent = content;
+
+    const contentElement = resultPopover.querySelector('#llm-translate-popover-content');
+    renderStatusContent(contentElement, content, loading);
     resultPopover.style.display = 'block';
+    positionFloatingElement(resultPopover, x, y);
 }
 
-/**
- * 更新结果浮窗的内容
- */
 function updateResultPopover(content) {
-    if (resultPopover) {
-        const contentDiv = resultPopover.querySelector('#llm-translate-popover-content');
-        if (contentDiv) {
-            contentDiv.textContent = content;
+    if (!resultPopover) return;
+
+    const contentDiv = resultPopover.querySelector('#llm-translate-popover-content');
+    renderStatusContent(contentDiv, content, false);
+}
+
+function setResultPopoverModel(modelName) {
+    if (!resultPopover) return;
+
+    const modelElement = resultPopover.querySelector('#llm-translate-popover-model');
+    if (!modelElement) return;
+
+    const safeModel = (modelName || '').trim();
+    modelElement.textContent = `模型：${safeModel || '--'}`;
+}
+
+function applyTranslationStreamUpdate(message) {
+    if (!resultPopover) {
+        return;
+    }
+
+    if (message.model) {
+        setResultPopoverModel(message.model);
+    }
+
+    if (message.stage === 'thinking') {
+        setResultPopoverThinking(Boolean(message.active));
+        return;
+    }
+
+    if (message.stage === 'text' && typeof message.text === 'string') {
+        updateResultPopover(message.text);
+        if (message.text.trim()) {
+            setResultPopoverThinking(false);
         }
+        return;
+    }
+
+    if (message.stage === 'done') {
+        if (typeof message.translation === 'string' && message.translation) {
+            updateResultPopover(message.translation);
+        }
+        setResultPopoverThinking(false);
     }
 }
 
-/**
- * 使元素可拖拽
- */
+function setResultPopoverThinking(active) {
+    if (!resultPopover) return;
+
+    const thinkingElement = resultPopover.querySelector('#llm-translate-popover-thinking');
+    if (!thinkingElement) return;
+
+    if (!active) {
+        if (thinkingAnimationTimer !== null) {
+            clearInterval(thinkingAnimationTimer);
+            thinkingAnimationTimer = null;
+        }
+        thinkingDotCount = 0;
+        thinkingElement.style.display = 'none';
+        thinkingElement.textContent = '';
+        return;
+    }
+
+    thinkingElement.style.display = 'inline-flex';
+    thinkingElement.textContent = `${THINKING_PLACEHOLDER_BASE}...`;
+
+    if (thinkingAnimationTimer !== null) {
+        return;
+    }
+
+    thinkingAnimationTimer = window.setInterval(() => {
+        thinkingDotCount = (thinkingDotCount + 1) % 4;
+        const dots = '.'.repeat(thinkingDotCount === 0 ? 1 : thinkingDotCount);
+        thinkingElement.textContent = `${THINKING_PLACEHOLDER_BASE}${dots}`;
+    }, 420);
+}
+
+function renderStatusContent(element, message, loading) {
+    if (!element) return;
+
+    element.replaceChildren();
+
+    if (!loading) {
+        element.textContent = message;
+        return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'llm-translate-status';
+
+    const spinner = document.createElement('span');
+    spinner.className = 'llm-translate-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+
+    const text = document.createElement('span');
+    text.textContent = message;
+
+    wrapper.appendChild(spinner);
+    wrapper.appendChild(text);
+    element.appendChild(wrapper);
+}
+
+function positionFloatingElement(element, clientX, clientY, offsetY = 15) {
+    const margin = 12;
+    let left = clientX + window.scrollX;
+    let top = clientY + window.scrollY + offsetY;
+
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+
+    const rect = element.getBoundingClientRect();
+    const minLeft = window.scrollX + margin;
+    const maxLeft = window.scrollX + window.innerWidth - rect.width - margin;
+    left = Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft));
+
+    const bottomOverflow = top - window.scrollY + rect.height > window.innerHeight - margin;
+    if (bottomOverflow) {
+        top = clientY + window.scrollY - rect.height - offsetY;
+    }
+
+    const minTop = window.scrollY + margin;
+    const maxTop = window.scrollY + window.innerHeight - rect.height - margin;
+    top = Math.min(Math.max(top, minTop), Math.max(minTop, maxTop));
+
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+}
+
+// --- 输入内容替换 ---
+function replaceEditableSelection(editableContext, text) {
+    if (!editableContext || !editableContext.element) {
+        return;
+    }
+
+    if (editableContext.type === 'text-control') {
+        replaceTextControlSelection(editableContext, text);
+        clearEditableSelectionContextCache();
+        return;
+    }
+
+    if (editableContext.type === 'contenteditable') {
+        replaceContentEditableSelection(editableContext, text);
+        clearEditableSelectionContextCache();
+    }
+}
+
+function replaceTextControlSelection(editableContext, text) {
+    const element = editableContext.element;
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+        return;
+    }
+
+    element.focus();
+    const start = typeof element.selectionStart === 'number' ? element.selectionStart : element.value.length;
+    const end = typeof element.selectionEnd === 'number' ? element.selectionEnd : start;
+
+    if (typeof element.setRangeText === 'function') {
+        element.setRangeText(text, start, end, 'end');
+    } else {
+        const valueBefore = element.value;
+        const nextValue = `${valueBefore.slice(0, start)}${text}${valueBefore.slice(end)}`;
+        const nextCaret = start + text.length;
+        setTextControlValueWithSetter(element, nextValue);
+        if (typeof element.setSelectionRange === 'function') {
+            element.setSelectionRange(nextCaret, nextCaret);
+        }
+    }
+
+    dispatchEditableInputEvent(element, {
+        inputType: start === end ? 'insertText' : 'insertReplacementText',
+        data: text
+    });
+}
+
+function replaceContentEditableSelection(editableContext, text) {
+    const element = editableContext.element;
+    if (!(element instanceof HTMLElement) || !element.isContentEditable) {
+        return;
+    }
+
+    element.focus();
+    const selection = window.getSelection();
+    if (!selection) {
+        return;
+    }
+
+    const range = getActiveContentEditableRange(editableContext, selection);
+    if (!range) {
+        return;
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    // 优先使用原生插入行为，最接近用户输入
+    let inserted = false;
+    try {
+        inserted = document.execCommand('insertText', false, text);
+    } catch (error) {
+        inserted = false;
+    }
+
+    if (!inserted) {
+        range.deleteContents();
+        const textNode = document.createTextNode(text);
+        range.insertNode(textNode);
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+
+    dispatchEditableInputEvent(element);
+}
+
+function getActiveContentEditableRange(editableContext, selection) {
+    const liveRange = cloneCurrentSelectionRange(selection);
+    if (liveRange && editableContext.element.contains(liveRange.commonAncestorContainer)) {
+        return liveRange;
+    }
+
+    const cachedRange = editableContext.selectedRange;
+    if (cachedRange && editableContext.element.contains(cachedRange.commonAncestorContainer)) {
+        return cachedRange.cloneRange();
+    }
+
+    return null;
+}
+
+function setTextControlValueWithSetter(element, text) {
+    const prototype = element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+    if (valueSetter) {
+        valueSetter.call(element, text);
+        return;
+    }
+
+    element.value = text;
+}
+
+function dispatchEditableInputEvent(element, details = {}) {
+    const { inputType = 'insertText', data = null } = details;
+
+    if (typeof InputEvent === 'function') {
+        try {
+            element.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                composed: true,
+                data,
+                inputType
+            }));
+            return;
+        } catch (error) {
+            // 回退到普通 Event
+        }
+    }
+
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function preventFocusSteal(event) {
+    event.preventDefault();
+}
+
+// --- 拖拽 ---
 function makeDraggable(element, handle) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    let pos1 = 0;
+    let pos2 = 0;
+    let pos3 = 0;
+    let pos4 = 0;
     handle = handle || element;
 
     handle.addEventListener('mousedown', dragMouseDown);
 
-    function dragMouseDown(e) {
-        // 如果点击的是按钮、输入框或链接，不触发拖拽
-        if (e.target.tagName === 'BUTTON' || 
-            e.target.tagName === 'INPUT' || 
-            e.target.tagName === 'A' || 
-            e.target.classList.contains('llm-translate-close') ||
-            e.target.classList.contains('llm-translate-copy-btn')) {
+    function dragMouseDown(event) {
+        if (
+            event.target.tagName === 'BUTTON' ||
+            event.target.tagName === 'INPUT' ||
+            event.target.tagName === 'A' ||
+            event.target.classList.contains('llm-translate-close') ||
+            event.target.classList.contains('llm-translate-copy-btn')
+        ) {
             return;
         }
 
-        // 如果点击的是内容区域且不是 handle，则允许文本选择，不触发拖拽
-        const target = e.target;
-        if (handle !== element && (!target || !(target instanceof Element) || (!target.closest('.llm-translate-header') && !target.closest('.llm-translate-popover-header')))) {
+        const target = event.target;
+        if (
+            handle !== element &&
+            (!target || !(target instanceof Element) || (!target.closest('.llm-translate-header') && !target.closest('.llm-translate-popover-header')))
+        ) {
             return;
         }
-        
-        // 对于没有 handle 的情况（普通浮窗），我们只在点击非文本区域时触发拖拽
-        if (handle === element && e.target.id === 'llm-translate-popover-content') {
+
+        if (handle === element && event.target.id === 'llm-translate-popover-content') {
             return;
         }
-        
-        e.preventDefault();
-        e.stopPropagation(); // 阻止冒泡，防止触发全局关闭逻辑
-        
-        // 获取鼠标初始位置
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        
-        document.addEventListener('mouseup', closeDragElement);
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        pos3 = event.clientX;
+        pos4 = event.clientY;
+
+        document.addEventListener('mouseup', closeDragElement, true);
         document.addEventListener('mousemove', elementDrag);
-        
+        window.addEventListener('blur', closeDragElement);
         element.classList.add('llm-translate-dragging');
-        
-        // 如果是 fixed 布局且有 transform，在开始拖拽时将其转换为具体的 top/left
+
         const style = window.getComputedStyle(element);
         if (style.position === 'fixed' && style.transform !== 'none') {
             const rect = element.getBoundingClientRect();
             element.style.transform = 'none';
-            element.style.top = rect.top + 'px';
-            element.style.left = rect.left + 'px';
-            element.style.margin = '0'; // 移除可能存在的 margin
+            element.style.top = `${rect.top}px`;
+            element.style.left = `${rect.left}px`;
+            element.style.margin = '0';
         }
     }
 
-    function elementDrag(e) {
-        e.preventDefault();
-        // 计算偏移量
-        pos1 = pos3 - e.clientX;
-        pos2 = pos4 - e.clientY;
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        
-        // 设置元素新位置
-        element.style.top = (element.offsetTop - pos2) + "px";
-        element.style.left = (element.offsetLeft - pos1) + "px";
+    function elementDrag(event) {
+        event.preventDefault();
+        pos1 = pos3 - event.clientX;
+        pos2 = pos4 - event.clientY;
+        pos3 = event.clientX;
+        pos4 = event.clientY;
+
+        element.style.top = `${element.offsetTop - pos2}px`;
+        element.style.left = `${element.offsetLeft - pos1}px`;
     }
 
     function closeDragElement() {
-        document.removeEventListener('mouseup', closeDragElement);
+        document.removeEventListener('mouseup', closeDragElement, true);
         document.removeEventListener('mousemove', elementDrag);
+        window.removeEventListener('blur', closeDragElement);
         element.classList.remove('llm-translate-dragging');
     }
 }
 
-/**
- * 移除所有翻译相关的UI元素
- */
-function removeTranslationUI() {
-    if (translateIcon) {
-        translateIcon.remove();
-        translateIcon = null;
+// --- 销毁 ---
+function removeSelectionActionUI() {
+    if (actionToolbar) {
+        actionToolbar.remove();
+        actionToolbar = null;
     }
+
+    removeReplaceConfirmPopover();
+}
+
+function removeReplaceConfirmPopover() {
+    if (replaceConfirmPopover) {
+        replaceConfirmPopover.remove();
+        replaceConfirmPopover = null;
+    }
+}
+
+function removeTranslationUI() {
+    cancelPendingSelectionToolbar();
+    resetTranslationStreamState();
+    removeSelectionActionUI();
+
     if (resultPopover) {
         resultPopover.remove();
         resultPopover = null;
     }
+}
+
+function stopPropagation(event) {
+    event.stopPropagation();
+}
+
+function resetTranslationStreamState() {
+    activeTranslationRequestId = null;
+    if (thinkingAnimationTimer !== null) {
+        clearInterval(thinkingAnimationTimer);
+        thinkingAnimationTimer = null;
+    }
+    thinkingDotCount = 0;
+    setResultPopoverThinking(false);
 }
