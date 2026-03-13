@@ -20,14 +20,14 @@ This project is forked from [licon/ez-translate](https://github.com/licon/ez-tra
 - **Complex provider-specific configurations**: Streamlined settings
 
 ### ✅ **Enhanced Features**
-- **Flexible provider support**: Now supports any LLM provider with customizable API endpoints
+- **Flexible provider support**: Built-in mainstream providers plus customizable OpenAI/Anthropic-compatible endpoints
 - **Draggable translation popup**: Translation window can be moved around the screen
 - **Direct text copying**: Text in translation results can be selected and copied directly
 - **Simplified UI**: Cleaner, more focused user interface
 - **Lightweight design**: Reduced extension size and complexity
 
 ### 🎯 **Core Philosophy**
-This fork prioritizes simplicity and usability over feature completeness. The goal is to provide a fast, reliable translation tool that works with any LLM provider without unnecessary complexity.
+This fork prioritizes simplicity and usability over feature completeness. The goal is to provide a fast, reliable translation tool that works with practical provider choices and minimal setup complexity.
 
 [查看中文版本 (View Chinese Version)](README_zh.md)
 
@@ -49,14 +49,14 @@ This method is recommended if you cannot access browser extension stores.
 
 ## Core Features
 
-*   **Flexible Provider Support:** Configure any LLM provider with custom API endpoints. No longer limited to specific providers.
+*   **Flexible Provider Support:** Built-in support for multiple mainstream providers, plus custom OpenAI/Anthropic-compatible endpoints.
 *   **Hover Translation:** Select text on any webpage, and a translation icon appears. Click to see translation results in place.
 *   **Popup Translation:** Click the browser toolbar icon to open a translation popup. Enter or paste text for instant translation.
 *   **Draggable Popup:** The translation popup window can be dragged and repositioned anywhere on screen.
 *   **Direct Text Selection:** Translation results can be selected and copied directly without additional buttons.
 *   **Smart Auto-fill:** Selected text automatically fills the popup input when opened.
 *   **One-Click Copy:** Built-in copy button for quick copying of translation results.
-*   **Secure Local Storage:** API keys are stored locally in your browser and never uploaded.
+*   **Browser Storage:** Settings are stored in browser storage (local by default, with optional browser-account sync).
 *   **Smart Language Detection:** Automatically detects source language and switches target language when needed.
 *   **Multiple Language Support:** Supports 100+ languages for translation.
 
@@ -84,29 +84,39 @@ This method is recommended if you cannot access browser extension stores.
 ## Configuration
 
 ### Provider Setup
-This fork supports flexible provider configuration:
+This fork supports provider configuration through built-in and custom-compatible options:
 
 1. Open extension settings
 2. Choose your preferred LLM provider type
-3. Enter your API endpoint and key
-4. Configure model parameters as needed
+3. Enter your API key (and Base URL when using custom provider mode)
+4. Fetch/select a model and save settings
 
-### Supported Provider Types
-- **Custom API endpoints**: Use any LLM provider with a compatible API
-- **OpenAI-compatible APIs**: Support for services offering OpenAI-compatible interfaces
-- **Local models**: Configure local inference servers
+### Built-in Provider Options
+- OpenRouter
+- SiliconFlow
+- Longcat AI
+- MiniMax
+- Zhipu AI
+- Moonshot Kimi
+- DeepSeek
+- Qwen (Tongyi)
+- Doubao
+- Custom OpenAI-compatible endpoint
+- Custom Anthropic-compatible endpoint
+
+For additional providers, use custom OpenAI-compatible or Anthropic-compatible endpoint mode.
 
 ## Tech Stack
 
 *   **Frontend:** `HTML`, `CSS`, `JavaScript`
 *   **Browser API:** `WebExtensions API` (compatible with Chrome, Firefox, Edge, etc.)
-*   **Storage:** `chrome.storage.local` for secure local data storage
+*   **Storage:** `chrome.storage.local` (default) and optional `chrome.storage.sync`
 
 ## Comparison with Original
 
 | Feature | Original EZ Translate | This Fork |
 |---------|----------------------|-----------|
-| Provider Support | Fixed providers (Gemini, SiliconFlow, etc.) | **Flexible, any provider** |
+| Provider Support | Fixed providers (Gemini, SiliconFlow, etc.) | **Built-in multi-provider + custom-compatible endpoints** |
 | Translation Methods | Hover, Popup, Right-click, Screenshot | **Hover, Popup only** (simplified) |
 | UI Complexity | Multiple features and options | **Simplified, focused interface** |
 | Popup Behavior | Fixed position | **Draggable, repositionable** |
@@ -119,7 +129,7 @@ This fork supports flexible provider configuration:
 The original EZ Translate is a feature-rich extension, but some users prefer a simpler, more focused tool. This fork:
 
 1. **Reduces complexity** by removing rarely-used features
-2. **Increases flexibility** by supporting any LLM provider
+2. **Increases flexibility** with built-in providers plus custom-compatible endpoint support
 3. **Improves usability** with draggable popups and direct text copying
 4. **Maintains core functionality** for daily translation needs
 5. **Lightweight design** for faster performance
@@ -138,6 +148,10 @@ Please note that we generally avoid adding back the removed complex features to 
 
 This project is licensed under the same license as the original EZ Translate project. See the [LICENSE](LICENSE) file for details.
 
+## Privacy Policy
+
+See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+
 ## Acknowledgments
 
 - Original project: [licon/ez-translate](https://github.com/licon/ez-translate)
@@ -146,4 +160,4 @@ This project is licensed under the same license as the original EZ Translate pro
 
 ---
 
-*Last updated: December 2025*
+*Last updated: March 2026*
