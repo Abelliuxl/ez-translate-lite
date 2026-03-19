@@ -709,7 +709,11 @@ function createSelectionToolbar(x, y, selectedText, editableContext) {
 
     actionToolbar.appendChild(translateButton);
 
-    if (editableContext && editableContext.fullText.trim()) {
+    if (
+        editableContext &&
+        editableContext.fullText.trim() &&
+        (editableContext.type === 'text-control' || !isLikelyManagedContentEditable(editableContext.element))
+    ) {
         const replaceButton = document.createElement('button');
         replaceButton.type = 'button';
         replaceButton.id = 'llm-translate-replace-icon';
@@ -1011,23 +1015,48 @@ function replaceTextControlSelection(editableContext, text) {
         return;
     }
 
+    stabilizeEditableFocusState(element);
     element.focus();
-    const start = typeof element.selectionStart === 'number' ? element.selectionStart : element.value.length;
-    const end = typeof element.selectionEnd === 'number' ? element.selectionEnd : start;
+    const previousValue = element.value;
+    const { start, end } = resolveTextControlSelectionRange(editableContext);
+    const expectedValue = `${previousValue.slice(0, start)}${text}${previousValue.slice(end)}`;
+    const nextCaret = start + text.length;
+    if (typeof element.setSelectionRange === 'function') {
+        element.setSelectionRange(start, end);
+    }
 
-    if (typeof element.setRangeText === 'function') {
-        element.setRangeText(text, start, end, 'end');
-    } else {
-        const valueBefore = element.value;
-        const nextValue = `${valueBefore.slice(0, start)}${text}${valueBefore.slice(end)}`;
-        const nextCaret = start + text.length;
-        setTextControlValueWithSetter(element, nextValue);
+    // 优先走浏览器原生编辑管线，兼容更多受控输入框的内部状态同步。
+    let inserted = false;
+    try {
+        inserted = document.execCommand('insertText', false, text);
+    } catch (error) {
+        inserted = false;
+    }
+
+    if (inserted) {
+        // 某些站点上 execCommand 会错误地在末尾追加，这里做结果校验并强制纠正。
+        if (element.value !== expectedValue) {
+            setTextControlValueWithSetter(element, expectedValue);
+        }
         if (typeof element.setSelectionRange === 'function') {
             element.setSelectionRange(nextCaret, nextCaret);
         }
+        notifyTextControlMutation(element, {
+            previousValue,
+            inputType: start === end ? 'insertText' : 'insertReplacementText',
+            data: text
+        });
+        return;
     }
 
-    dispatchEditableInputEvent(element, {
+    setTextControlValueWithSetter(element, expectedValue);
+
+    if (typeof element.setSelectionRange === 'function') {
+        element.setSelectionRange(nextCaret, nextCaret);
+    }
+
+    notifyTextControlMutation(element, {
+        previousValue,
         inputType: start === end ? 'insertText' : 'insertReplacementText',
         data: text
     });
@@ -1039,6 +1068,11 @@ function replaceContentEditableSelection(editableContext, text) {
         return;
     }
 
+    if (isLikelyManagedContentEditable(element)) {
+        throw new Error('当前输入框由页面脚本托管，自动替换可能导致编辑器异常。请手动粘贴翻译结果。');
+    }
+
+    stabilizeEditableFocusState(element);
     element.focus();
     const selection = window.getSelection();
     if (!selection) {
@@ -1061,6 +1095,17 @@ function replaceContentEditableSelection(editableContext, text) {
         inserted = false;
     }
 
+    if (inserted) {
+        const currentRange = cloneCurrentSelectionRange(selection);
+        if (currentRange) {
+            currentRange.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(currentRange);
+        }
+        element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        return;
+    }
+
     if (!inserted) {
         range.deleteContents();
         const textNode = document.createTextNode(text);
@@ -1070,8 +1115,7 @@ function replaceContentEditableSelection(editableContext, text) {
         selection.removeAllRanges();
         selection.addRange(range);
     }
-
-    dispatchEditableInputEvent(element);
+    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 }
 
 function getActiveContentEditableRange(editableContext, selection) {
@@ -1100,6 +1144,98 @@ function setTextControlValueWithSetter(element, text) {
     }
 
     element.value = text;
+}
+
+function stabilizeEditableFocusState(element) {
+    if (!element || typeof element.dispatchEvent !== 'function') {
+        return;
+    }
+
+    // 某些中文输入法场景下会残留 composition 态，导致后续脚本替换后输入框看似“假死”。
+    try {
+        if (typeof CompositionEvent === 'function') {
+            element.dispatchEvent(new CompositionEvent('compositionend', {
+                bubbles: true,
+                cancelable: false,
+                data: ''
+            }));
+        }
+    } catch (error) {
+        // 忽略 composition 事件失败，继续走焦点重置
+    }
+
+    if (document.activeElement === element && typeof element.blur === 'function' && typeof element.focus === 'function') {
+        try {
+            element.blur();
+            element.focus();
+        } catch (error) {
+            // 忽略焦点重置失败
+        }
+    }
+}
+
+function notifyTextControlMutation(element, details = {}) {
+    const { previousValue = '', inputType = 'insertText', data = null } = details;
+    syncReactValueTracker(element, previousValue);
+    dispatchEditableInputEvent(element, { inputType, data });
+    // 一些站点只监听普通 Event('input') 或在 change 时才刷新布局。
+    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+}
+
+function syncReactValueTracker(element, previousValue) {
+    const tracker = element && element._valueTracker;
+    if (!tracker || typeof tracker.setValue !== 'function') {
+        return;
+    }
+
+    try {
+        tracker.setValue(String(previousValue));
+    } catch (error) {
+        // 忽略 tracker 同步失败，继续派发事件
+    }
+}
+
+function resolveTextControlSelectionRange(editableContext) {
+    const element = editableContext.element;
+    const valueLength = element.value.length;
+    const contextStart = Number.isInteger(editableContext.selectionStart) ? editableContext.selectionStart : null;
+    const contextEnd = Number.isInteger(editableContext.selectionEnd) ? editableContext.selectionEnd : null;
+
+    if (
+        contextStart !== null &&
+        contextEnd !== null &&
+        contextStart >= 0 &&
+        contextEnd >= contextStart &&
+        contextEnd <= valueLength
+    ) {
+        return { start: contextStart, end: contextEnd };
+    }
+
+    const currentStart = typeof element.selectionStart === 'number' ? element.selectionStart : valueLength;
+    const currentEnd = typeof element.selectionEnd === 'number' ? element.selectionEnd : currentStart;
+
+    return {
+        start: Math.max(0, Math.min(currentStart, valueLength)),
+        end: Math.max(0, Math.min(currentEnd, valueLength))
+    };
+}
+
+function isLikelyManagedContentEditable(element) {
+    if (!(element instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (
+        element.matches('[data-slate-editor="true"]') ||
+        element.matches('[data-lexical-editor="true"]')
+    ) {
+        return true;
+    }
+
+    return Boolean(
+        element.closest('.ProseMirror, .ql-editor, .ck-content, [data-slate-editor="true"], [data-lexical-editor="true"]')
+    );
 }
 
 function dispatchEditableInputEvent(element, details = {}) {
