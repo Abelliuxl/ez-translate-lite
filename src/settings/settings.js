@@ -154,7 +154,8 @@ let currentSettings = {
     serverUrl: '',
     selectedModel: '',
     useCustomModel: false,
-    customModel: ''
+    customModel: '',
+    thinkingEnabled: false
 };
 let syncEnabled = false; // 默认关闭同步
 
@@ -189,6 +190,7 @@ const elements = {
     customModelCheckbox: document.getElementById('custom-model-checkbox'),
     customModelSection: document.getElementById('custom-model-section'),
     customModelInput: document.getElementById('custom-model-input'),
+    thinkingModeCheckbox: document.getElementById('thinking-mode-checkbox'),
     // 保存按钮
     saveSettingsBtn: document.getElementById('save-settings-btn'),
     // 同步设置
@@ -245,7 +247,8 @@ function saveProviderSettings() {
                 serverUrl: currentSettings.serverUrl,
                 selectedModel: effectiveModel,
                 useCustomModel: currentSettings.useCustomModel,
-                customModel: currentSettings.customModel
+                customModel: currentSettings.customModel,
+                thinkingEnabled: currentSettings.thinkingEnabled
             };
         }
         
@@ -277,13 +280,15 @@ function getProviderSettingsFromStorage(allSettings = {}, providerId = currentPr
     const useCustomModel = providerData.useCustomModel ?? fallbackData.useCustomModel ?? false;
     const selectedModel = ((providerData.selectedModel ?? fallbackData.selectedModel) || '').trim();
     const customModel = ((providerData.customModel ?? fallbackData.customModel) || '').trim();
+    const thinkingEnabled = providerData.thinkingEnabled ?? fallbackData.thinkingEnabled ?? false;
 
     return {
         apiKey: (providerData.apiKey ?? fallbackData.apiKey ?? '').trim(),
         serverUrl: (providerData.serverUrl ?? fallbackData.serverUrl ?? '').trim(),
         selectedModel: useCustomModel ? (customModel || selectedModel) : selectedModel,
         useCustomModel,
-        customModel
+        customModel,
+        thinkingEnabled
     };
 }
 
@@ -365,6 +370,9 @@ async function setupProviderConfig(providerId) {
     elements.customModelCheckbox.checked = currentSettings.useCustomModel;
     elements.customModelInput.value = currentSettings.customModel;
     updateCustomModelUI();
+    
+    // 初始化思考模式
+    elements.thinkingModeCheckbox.checked = currentSettings.thinkingEnabled;
     
     // 如果有保存的设置，尝试加载模型
     if (hasValidCredentials() && currentSettings.selectedModel && !currentSettings.useCustomModel) {
@@ -1181,6 +1189,13 @@ function setupEventListeners() {
             currentSettings.selectedModel = e.target.value;
         }
         saveProviderSettings();
+    });
+    
+    // 思考模式开关
+    elements.thinkingModeCheckbox.addEventListener('change', (e) => {
+        currentSettings.thinkingEnabled = e.target.checked;
+        saveProviderSettings();
+        showStatus(e.target.checked ? '已启用思考模式' : '已关闭思考模式', 'success');
     });
     
     // 保存按钮

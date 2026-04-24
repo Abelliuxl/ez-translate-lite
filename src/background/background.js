@@ -182,7 +182,7 @@ async function handleTranslation({ text, targetLanguage, secondTargetLanguage, s
             return;
         }
         
-        const { currentProvider, apiKey, serverUrl, selectedModel } = resolveActiveProviderSettings(allProviderSettings);
+        const { currentProvider, apiKey, serverUrl, selectedModel, thinkingEnabled } = resolveActiveProviderSettings(allProviderSettings);
         if (!currentProvider || !selectedModel) {
             sendResponse({ error: '请先在设置页面选择提供商和模型' });
             return;
@@ -235,6 +235,7 @@ async function handleTranslation({ text, targetLanguage, secondTargetLanguage, s
             text,
             targetLanguage: actualTargetLanguage,
             secondTargetLanguage,
+            thinkingEnabled,
             onProgress: sendProgress
         });
 
@@ -383,7 +384,8 @@ function resolveActiveProviderSettings(allSettings = {}) {
         currentProvider,
         apiKey: pickFirstNonEmptyString(providerData.apiKey, fallbackData.apiKey),
         serverUrl: pickFirstNonEmptyString(providerData.serverUrl, fallbackData.serverUrl),
-        selectedModel: resolveSelectedModel(providerData, fallbackData)
+        selectedModel: resolveSelectedModel(providerData, fallbackData),
+        thinkingEnabled: providerData.thinkingEnabled ?? fallbackData.thinkingEnabled ?? false
     };
 }
 
@@ -680,7 +682,7 @@ async function readSseDataLines(response, onDataLine) {
 /**
  * 调用文本翻译API
  */
-async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, text, targetLanguage, secondTargetLanguage, onProgress = null }) {
+async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, text, targetLanguage, secondTargetLanguage, thinkingEnabled = false, onProgress = null }) {
     // 确保参数正确传递给 getMessage
     const prompt = chrome.i18n.getMessage('translationPrompt', [
         String(targetLanguage), 
@@ -689,7 +691,7 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
     ]);
     
     if (config.apiFormat === 'openai') {
-        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, prompt, onProgress);
+        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, prompt, thinkingEnabled, onProgress);
     } else if (config.apiFormat === 'anthropic') {
         return await callAnthropicAPI(config.modelsEndpoint, apiKey, model, prompt, onProgress);
     } else if (config.apiFormat === 'google') {
@@ -698,13 +700,13 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
         return await callZhipuAPI(config.modelsEndpoint, apiKey, model, prompt, onProgress);
     } else if (config.apiFormat === 'azure') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl).replace('{model}', model);
-        return await callOpenAICompatibleAPI(endpoint, apiKey, model, prompt, onProgress);
+        return await callOpenAICompatibleAPI(endpoint, apiKey, model, prompt, thinkingEnabled, onProgress);
     } else if (config.apiFormat === 'ollama') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl);
         return await callOllamaAPI(endpoint, model, prompt, onProgress);
     } else if (config.apiFormat === 'custom-openai') {
         const endpoints = buildEndpointCandidates(serverUrl, '/chat/completions');
-        return await callOpenAICompatibleAPI(endpoints, apiKey, model, prompt, onProgress);
+        return await callOpenAICompatibleAPI(endpoints, apiKey, model, prompt, thinkingEnabled, onProgress);
     } else if (config.apiFormat === 'custom-anthropic') {
         const endpoints = buildEndpointCandidates(serverUrl, '/messages');
         const modelCandidates = [
@@ -721,7 +723,7 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
 
 
 // --- OpenAI兼容API ---
-async function callOpenAICompatibleAPI(endpoint, apiKey, model, prompt, onProgress = null) {
+async function callOpenAICompatibleAPI(endpoint, apiKey, model, prompt, thinkingEnabled = false, onProgress = null) {
     const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
     const streamRequested = typeof onProgress === 'function';
     let lastError = null;
@@ -747,16 +749,20 @@ async function callOpenAICompatibleAPI(endpoint, apiKey, model, prompt, onProgre
             let response;
 
             try {
+                const requestBody = {
+                    model,
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 2048,
+                    temperature: 0.3,
+                    stream: streamMode
+                };
+                if (!thinkingEnabled) {
+                    requestBody.thinking = { type: 'disabled' };
+                }
                 response = await fetch(currentEndpoint, {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify({
-                        model,
-                        messages: [{ role: 'user', content: prompt }],
-                        max_tokens: 2048,
-                        temperature: 0.3,
-                        stream: streamMode
-                    }),
+                    body: JSON.stringify(requestBody),
                     credentials: 'omit'
                 });
             } catch (error) {
