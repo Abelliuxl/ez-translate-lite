@@ -430,8 +430,12 @@ function populateFixedModels(models) {
         elements.modelSelect.appendChild(option);
     });
     
-    if (currentSettings.selectedModel) {
+    if (currentSettings.selectedModel && models.includes(currentSettings.selectedModel)) {
         elements.modelSelect.value = currentSettings.selectedModel;
+    } else if (models.length > 0) {
+        elements.modelSelect.value = models[0];
+        currentSettings.selectedModel = models[0];
+        saveProviderSettings();
     }
     
     elements.modelSelect.disabled = false;
@@ -991,9 +995,13 @@ async function fetchModels() {
             elements.modelSelect.appendChild(option);
         });
         
-        // 恢复之前选择的模型
+        // 恢复之前选择的模型，或自动选中第一个
         if (currentSettings.selectedModel && models.includes(currentSettings.selectedModel)) {
             elements.modelSelect.value = currentSettings.selectedModel;
+        } else if (models.length > 0) {
+            elements.modelSelect.value = models[0];
+            currentSettings.selectedModel = models[0];
+            saveProviderSettings();
         }
         
         elements.modelSelect.disabled = false;
