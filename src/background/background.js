@@ -132,6 +132,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// 点击插件图标直接打开设置页面
+chrome.action.onClicked.addListener(() => {
+    chrome.runtime.openOptionsPage();
+});
+
 // --- 语言名称标准化函数 ---
 function normalizeLanguageToEnglishName(langValue) {
     const langKeyToEnName = {
