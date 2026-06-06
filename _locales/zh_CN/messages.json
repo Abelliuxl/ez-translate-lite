@@ -644,12 +644,12 @@
         "description": "选中文本后的翻译按钮。"
     },
     "replaceInputButtonTitle": {
-        "message": "翻译并替换选中文本",
-        "description": "用于翻译当前选中文本并替换它的按钮提示。"
+        "message": "翻译并追加到文本末尾",
+        "description": "用于翻译当前选中文本并追加到输入框末尾的按钮提示。"
     },
     "replaceInputConfirmMessage": {
-        "message": "确认用翻译结果替换选中文本吗？",
-        "description": "替换当前选中文本前的确认提示。"
+        "message": "确认将翻译结果追加到文本末尾吗？",
+        "description": "追加翻译结果到文本末尾前的确认提示。"
     },
     "confirmButton": {
         "message": "确认",

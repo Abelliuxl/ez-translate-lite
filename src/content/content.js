@@ -718,7 +718,7 @@ function createSelectionToolbar(x, y, selectedText, editableContext) {
         replaceButton.type = 'button';
         replaceButton.id = 'llm-translate-replace-icon';
         replaceButton.className = 'llm-translate-action-btn';
-        replaceButton.title = getMessage('replaceInputButtonTitle', 'Translate and replace selected text');
+        replaceButton.title = getMessage('replaceInputButtonTitle', 'Translate and append to end of text');
         replaceButton.textContent = 'T';
         replaceButton.addEventListener('mousedown', preventFocusSteal);
 
@@ -759,7 +759,7 @@ function showReplaceConfirmPopover(x, y, editableContext) {
 
     renderStatusContent(
         message,
-        getMessage('replaceInputConfirmMessage', 'Replace selected text with the translation result?'),
+        getMessage('replaceInputConfirmMessage', 'Append the translation result to the end of the text?'),
         false
     );
     cancelButton.textContent = getMessage('cancelButton', 'Cancel');
@@ -998,58 +998,30 @@ function replaceEditableSelection(editableContext, text) {
     }
 
     if (editableContext.type === 'text-control') {
-        replaceTextControlSelection(editableContext, text);
+        appendToTextControl(editableContext, text);
         clearEditableSelectionContextCache();
         return;
     }
 
     if (editableContext.type === 'contenteditable') {
-        replaceContentEditableSelection(editableContext, text);
+        appendToContentEditable(editableContext, text);
         clearEditableSelectionContextCache();
     }
 }
 
-function replaceTextControlSelection(editableContext, text) {
+function appendToTextControl(editableContext, text) {
     const element = editableContext.element;
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
         return;
     }
 
-    stabilizeEditableFocusState(element);
     element.focus();
     const previousValue = element.value;
-    const { start, end } = resolveTextControlSelectionRange(editableContext);
-    const expectedValue = `${previousValue.slice(0, start)}${text}${previousValue.slice(end)}`;
-    const nextCaret = start + text.length;
-    if (typeof element.setSelectionRange === 'function') {
-        element.setSelectionRange(start, end);
-    }
+    const expectedValue = previousValue + text;
+    const nextCaret = expectedValue.length;
 
-    // 优先走浏览器原生编辑管线，兼容更多受控输入框的内部状态同步。
-    let inserted = false;
-    try {
-        inserted = document.execCommand('insertText', false, text);
-    } catch (error) {
-        inserted = false;
-    }
-
-    if (inserted) {
-        // 某些站点上 execCommand 会错误地在末尾追加，这里做结果校验并强制纠正。
-        if (element.value !== expectedValue) {
-            setTextControlValueWithSetter(element, expectedValue);
-        }
-        if (typeof element.setSelectionRange === 'function') {
-            element.setSelectionRange(nextCaret, nextCaret);
-        }
-        notifyTextControlMutation(element, {
-            previousValue,
-            inputType: start === end ? 'insertText' : 'insertReplacementText',
-            data: text
-        });
-        return;
-    }
-
-    setTextControlValueWithSetter(element, expectedValue);
+    // 直接赋值，保留浏览器内部输入状态管理，避免破坏选区能力
+    element.value = expectedValue;
 
     if (typeof element.setSelectionRange === 'function') {
         element.setSelectionRange(nextCaret, nextCaret);
@@ -1057,37 +1029,34 @@ function replaceTextControlSelection(editableContext, text) {
 
     notifyTextControlMutation(element, {
         previousValue,
-        inputType: start === end ? 'insertText' : 'insertReplacementText',
+        inputType: 'insertText',
         data: text
     });
 }
 
-function replaceContentEditableSelection(editableContext, text) {
+function appendToContentEditable(editableContext, text) {
     const element = editableContext.element;
     if (!(element instanceof HTMLElement) || !element.isContentEditable) {
         return;
     }
 
     if (isLikelyManagedContentEditable(element)) {
-        throw new Error('当前输入框由页面脚本托管，自动替换可能导致编辑器异常。请手动粘贴翻译结果。');
+        throw new Error('当前输入框由页面脚本托管，自动插入可能导致编辑器异常。请手动粘贴翻译结果。');
     }
 
-    stabilizeEditableFocusState(element);
     element.focus();
     const selection = window.getSelection();
     if (!selection) {
         return;
     }
 
-    const range = getActiveContentEditableRange(editableContext, selection);
-    if (!range) {
-        return;
-    }
-
+    // 将光标移到内容末尾，而非替换选区
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
     selection.removeAllRanges();
     selection.addRange(range);
 
-    // 优先使用原生插入行为，最接近用户输入
     let inserted = false;
     try {
         inserted = document.execCommand('insertText', false, text);
@@ -1095,19 +1064,7 @@ function replaceContentEditableSelection(editableContext, text) {
         inserted = false;
     }
 
-    if (inserted) {
-        const currentRange = cloneCurrentSelectionRange(selection);
-        if (currentRange) {
-            currentRange.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(currentRange);
-        }
-        element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-        return;
-    }
-
     if (!inserted) {
-        range.deleteContents();
         const textNode = document.createTextNode(text);
         range.insertNode(textNode);
         range.setStartAfter(textNode);
@@ -1115,21 +1072,8 @@ function replaceContentEditableSelection(editableContext, text) {
         selection.removeAllRanges();
         selection.addRange(range);
     }
+
     element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-}
-
-function getActiveContentEditableRange(editableContext, selection) {
-    const liveRange = cloneCurrentSelectionRange(selection);
-    if (liveRange && editableContext.element.contains(liveRange.commonAncestorContainer)) {
-        return liveRange;
-    }
-
-    const cachedRange = editableContext.selectedRange;
-    if (cachedRange && editableContext.element.contains(cachedRange.commonAncestorContainer)) {
-        return cachedRange.cloneRange();
-    }
-
-    return null;
 }
 
 function setTextControlValueWithSetter(element, text) {
@@ -1144,34 +1088,6 @@ function setTextControlValueWithSetter(element, text) {
     }
 
     element.value = text;
-}
-
-function stabilizeEditableFocusState(element) {
-    if (!element || typeof element.dispatchEvent !== 'function') {
-        return;
-    }
-
-    // 某些中文输入法场景下会残留 composition 态，导致后续脚本替换后输入框看似“假死”。
-    try {
-        if (typeof CompositionEvent === 'function') {
-            element.dispatchEvent(new CompositionEvent('compositionend', {
-                bubbles: true,
-                cancelable: false,
-                data: ''
-            }));
-        }
-    } catch (error) {
-        // 忽略 composition 事件失败，继续走焦点重置
-    }
-
-    if (document.activeElement === element && typeof element.blur === 'function' && typeof element.focus === 'function') {
-        try {
-            element.blur();
-            element.focus();
-        } catch (error) {
-            // 忽略焦点重置失败
-        }
-    }
 }
 
 function notifyTextControlMutation(element, details = {}) {
@@ -1194,31 +1110,6 @@ function syncReactValueTracker(element, previousValue) {
     } catch (error) {
         // 忽略 tracker 同步失败，继续派发事件
     }
-}
-
-function resolveTextControlSelectionRange(editableContext) {
-    const element = editableContext.element;
-    const valueLength = element.value.length;
-    const contextStart = Number.isInteger(editableContext.selectionStart) ? editableContext.selectionStart : null;
-    const contextEnd = Number.isInteger(editableContext.selectionEnd) ? editableContext.selectionEnd : null;
-
-    if (
-        contextStart !== null &&
-        contextEnd !== null &&
-        contextStart >= 0 &&
-        contextEnd >= contextStart &&
-        contextEnd <= valueLength
-    ) {
-        return { start: contextStart, end: contextEnd };
-    }
-
-    const currentStart = typeof element.selectionStart === 'number' ? element.selectionStart : valueLength;
-    const currentEnd = typeof element.selectionEnd === 'number' ? element.selectionEnd : currentStart;
-
-    return {
-        start: Math.max(0, Math.min(currentStart, valueLength)),
-        end: Math.max(0, Math.min(currentEnd, valueLength))
-    };
 }
 
 function isLikelyManagedContentEditable(element) {

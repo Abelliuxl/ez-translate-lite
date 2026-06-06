@@ -641,12 +641,12 @@
         "description": "Button to translate selected image region."
     },
     "replaceInputButtonTitle": {
-        "message": "翻譯並替換選中文字",
-        "description": "用於翻譯目前選取文字並替換它的按鈕提示。"
+        "message": "翻譯並追加到文字末尾",
+        "description": "用於翻譯目前選取文字並追加到輸入框末尾的按鈕提示。"
     },
     "replaceInputConfirmMessage": {
-        "message": "確認要用翻譯結果替換選取文字嗎？",
-        "description": "替換目前選取文字前的確認提示。"
+        "message": "確認要將翻譯結果追加到文字末尾嗎？",
+        "description": "追加翻譯結果到文字末尾前的確認提示。"
     },
     "confirmButton": {
         "message": "確認",

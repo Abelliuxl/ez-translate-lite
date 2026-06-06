@@ -2,6 +2,7 @@
 .env
 screenshot/
 *.zip
+dist/
 
 generate-translation-report.js
 translation-reports/

@@ -632,12 +632,12 @@
         "description": "Button to translate selected image region."
     },
     "replaceInputButtonTitle": {
-        "message": "Translate and replace selected text",
-        "description": "Tooltip for the action that translates currently selected text and replaces it."
+        "message": "Translate and append to end of text",
+        "description": "Tooltip for the action that translates currently selected text and appends it to the end."
     },
     "replaceInputConfirmMessage": {
-        "message": "Replace selected text with the translation result?",
-        "description": "Confirmation message shown before replacing selected editable text."
+        "message": "Append the translation result to the end of the text?",
+        "description": "Confirmation message shown before appending translation to the end of editable text."
     },
     "confirmButton": {
         "message": "Confirm",
