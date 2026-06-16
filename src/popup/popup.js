@@ -1,12 +1,7 @@
 // --- 存储辅助函数 ---
 // 获取同步开关状态并返回相应的存储对象
-async function getStorage() {
-    return new Promise((resolve) => {
-        chrome.storage.local.get(['syncEnabled'], (result) => {
-            const syncEnabled = result.syncEnabled || false;
-            resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
-        });
-    });
+function getStorage() {
+    return chrome.storage.local;
 }
 
 // --- I18n Helper ---

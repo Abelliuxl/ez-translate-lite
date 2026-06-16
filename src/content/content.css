@@ -36,81 +36,6 @@
     display: block;
 }
 
-#llm-translate-replace-icon {
-    color: #1f4b99;
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 1;
-}
-
-#llm-translate-replace-confirm {
-    position: absolute;
-    width: 280px;
-    max-width: calc(100vw - 24px);
-    background-color: #ffffff;
-    border: 1px solid #dcdcdc;
-    border-radius: 10px;
-    padding: 12px;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-    z-index: 2147483647;
-}
-
-.llm-translate-confirm-message {
-    color: #333;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.llm-translate-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.llm-translate-spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid #d9e5ff;
-    border-top-color: #1f4b99;
-    border-radius: 50%;
-    animation: llm-translate-spin 0.8s linear infinite;
-    flex-shrink: 0;
-}
-
-@keyframes llm-translate-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.llm-translate-confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 12px;
-}
-
-.llm-translate-confirm-btn {
-    border: 1px solid #d7d7d7;
-    border-radius: 6px;
-    background: #ffffff;
-    color: #333;
-    font-size: 13px;
-    padding: 6px 12px;
-    cursor: pointer;
-}
-
-.llm-translate-confirm-btn.primary {
-    background: #1f4b99;
-    border-color: #1f4b99;
-    color: #ffffff;
-}
-
-.llm-translate-confirm-btn:disabled {
-    opacity: 0.6;
-    cursor: wait;
-}
-
 #llm-translate-popover {
     position: absolute;
     background-color: #ffffff;
@@ -202,7 +127,8 @@
     flex-shrink: 0;
 }
 
-#llm-translate-popover:hover #llm-translate-popover-copy {
+#llm-translate-popover:hover #llm-translate-popover-copy,
+#llm-translate-popover:hover #llm-translate-popover-switch {
     opacity: 1;
 }
 
@@ -333,6 +259,29 @@
 .llm-translate-copy-btn:active {
     background: #d0d0d0;
     transform: translateY(1px);
+}
+
+#llm-translate-popover-switch {
+    position: static;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
+}
+#llm-translate-popover-switch:hover {
+    background: #e0e0e0;
+    border-color: #bbb;
+    color: #333;
+}
+
+#llm-translate-popover-content {
+    transition: opacity 0.15s ease;
 }
 
 /* 确保弹窗内的文本选择不会触发关闭 */

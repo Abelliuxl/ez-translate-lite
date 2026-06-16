@@ -8,103 +8,24 @@
 <body>
     <h1 data-i18n="settingsTitle"></h1>
 
-    <!-- 统一的LLM提供商设置 -->
-    <div class="provider-settings">
-        <h2>LLM 提供商设置</h2>
-        
-        <div class="form-group">
-            <label for="provider-select">选择提供商</label>
-            <select id="provider-select">
-                <option value="">请选择提供商</option>
-                <optgroup label="聚合平台">
-                    <option value="openrouter">OpenRouter</option>
-                    <option value="siliconflow">硅基流动 (SiliconFlow)</option>
-                </optgroup>
-                <optgroup label="中国平台">
-                    <option value="longcat">Longcat AI</option>
-                    <option value="minimax">MiniMax</option>
-                    <option value="zhipuai">智谱AI</option>
-                    <option value="moonshot">月之暗面 Kimi</option>
-                    <option value="deepseek">深度求索 DeepSeek</option>
-                    <option value="qwen">通义千问</option>
-                    <option value="doubao">字节跳动豆包</option>
-                </optgroup>
-                <optgroup label="自定义兼容">
-                    <option value="custom-openai">自定义 OpenAI 兼容</option>
-                    <option value="custom-anthropic">自定义 Anthropic 兼容</option>
-                </optgroup>
-            </select>
+    <!-- ========== LLM 配置管理 ========== -->
+    <section class="config-management">
+        <div class="section-header">
+            <h2>LLM 配置管理</h2>
+            <button id="btn-new-config" class="btn-primary">+ 新建配置</button>
         </div>
 
-        <!-- 动态提供商配置区域 -->
-        <div id="provider-config" style="display: none;">
-            <!-- API密钥配置 -->
-            <div class="form-group" id="api-key-group">
-                <label for="api-key-input">
-                    <span id="api-key-label">API密钥</span>
-                    <a href="#" id="api-key-help" target="_blank">获取帮助</a>
-                </label>
-                <div class="api-key-container">
-                    <div class="input-with-toggle">
-                        <input type="password" id="api-key-input" placeholder="请输入API密钥">
-                        <button id="toggle-api-key" class="toggle-btn" type="button" title="显示/隐藏">👁️</button>
-                    </div>
-                    <button id="test-connection" class="btn-secondary">测试连接</button>
-                </div>
-            </div>
+        <!-- 配置卡片列表 -->
+        <div id="config-list" class="config-list"></div>
 
-            <!-- 服务器地址配置（用于本地部署） -->
-            <div class="form-group" id="server-url-group" style="display: none;">
-                <label for="server-url-input">
-                    <span id="server-url-label">服务器地址</span>
-                    <a href="#" id="server-url-help" target="_blank">获取帮助</a>
-                </label>
-                <div class="api-key-container">
-                    <input type="text" id="server-url-input" placeholder="http://localhost:11434">
-                    <button id="test-server" class="btn-secondary">测试连接</button>
-                </div>
-            </div>
-
-            <!-- 模型选择 -->
-            <div class="form-group">
-                <label for="model-select">选择模型</label>
-                <div class="model-controls">
-                    <select id="model-select" disabled>
-                        <option>请先配置API密钥并获取模型列表</option>
-                    </select>
-                    <button id="fetch-models" class="btn-action" disabled>获取模型列表</button>
-                </div>
-                <p class="hint" id="model-hint">配置API密钥后点击"获取模型列表"按钮</p>
-            </div>
-
-            <!-- 自定义模型选项 -->
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="custom-model-checkbox">
-                    <span>使用自定义模型</span>
-                </label>
-                <div id="custom-model-section" style="display: none;" class="custom-model-section">
-                    <input type="text" id="custom-model-input" placeholder="请输入自定义模型名称" class="custom-model-input">
-                    <p class="hint">某些提供商可能不支持远程获取模型列表，您可以在此手动输入模型名称</p>
-                </div>
-            </div>
-
-            <!-- 思考模式选项 -->
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="thinking-mode-checkbox">
-                    <span>启用思考模式</span>
-                </label>
-                <p class="hint">启用后模型会进行深度思考再回答，翻译质量可能更高但耗时更长且消耗更多 tokens。对 DeepSeek R1 等推理模型建议关闭以提升速度。</p>
-            </div>
-
-            <!-- 提供商特定设置 -->
-            <div id="provider-specific-settings" class="provider-specific"></div>
+        <!-- 空状态 -->
+        <div id="config-empty" class="config-empty" style="display:none;">
+            <p>暂无配置，点击「新建配置」按钮创建第一个 LLM 配置档案</p>
         </div>
-    </div>
+    </section>
 
-    <!-- 目标语言设置 -->
-    <div class="target-language-settings">
+    <!-- ========== 目标语言设置 ========== -->
+    <section class="target-language-settings">
         <h2 data-i18n="targetLanguageSettingsTitle"></h2>
 
         <div class="form-group">
@@ -118,30 +39,10 @@
             <p class="hint" data-i18n="secondTargetLanguageHint"></p>
             <select id="second-target-language"></select>
         </div>
-    </div>
+    </section>
 
-    <!-- 云同步设置 -->
-    <div class="sync-settings">
-        <h2 data-i18n="syncSettingsTitle"></h2>
-
-        <div class="form-group">
-            <label class="checkbox-label">
-                <input type="checkbox" id="enable-sync-checkbox">
-                <span data-i18n="enableSyncLabel"></span>
-            </label>
-            <p class="hint" data-i18n="enableSyncHint"></p>
-        </div>
-    </div>
-
-    <!-- 保存按钮 -->
-    <div class="save-section">
-        <button id="save-settings-btn" class="btn-save">保存设置</button>
-    </div>
-
-    <div id="status"></div>
-
-    <!-- GitHub Section -->
-    <div class="github-section">
+    <!-- ========== GitHub Section ========== -->
+    <section class="github-section">
         <div class="github-content">
             <h3 data-i18n="githubSectionTitle"></h3>
             <p data-i18n="githubDescription"></p>
@@ -150,6 +51,142 @@
                 <a href="https://github.com/Abelliuxl/ez-translate-lite/issues" target="_blank" class="github-link issue-link" data-i18n="reportIssue"></a>
             </div>
             <p class="github-encouragement" data-i18n="githubEncouragement"></p>
+        </div>
+    </section>
+
+    <!-- ========== 配置编辑模态框 ========== -->
+    <div id="config-modal" class="modal" style="display:none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">新建配置</h3>
+                <button id="modal-close" class="modal-close" type="button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- 配置名称 -->
+                <div class="form-group">
+                    <label for="config-name">配置名称</label>
+                    <input type="text" id="config-name" placeholder="例如：DeepSeek V3 快速翻译">
+                </div>
+
+                <!-- 提供商选择 -->
+                <div class="form-group">
+                    <label for="config-provider">选择提供商</label>
+                    <select id="config-provider">
+                        <option value="">请选择提供商</option>
+                        <optgroup label="聚合平台">
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+                        </optgroup>
+                        <optgroup label="中国平台">
+                            <option value="longcat">Longcat AI</option>
+                            <option value="minimax">MiniMax</option>
+                            <option value="zhipuai">智谱AI</option>
+                            <option value="moonshot">月之暗面 Kimi</option>
+                            <option value="deepseek">深度求索 DeepSeek</option>
+                            <option value="qwen">通义千问</option>
+                            <option value="doubao">字节跳动豆包</option>
+                        </optgroup>
+                        <optgroup label="自定义兼容">
+                            <option value="custom-openai">自定义 OpenAI 兼容</option>
+                            <option value="custom-anthropic">自定义 Anthropic 兼容</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <!-- API Key -->
+                <div class="form-group" id="config-apikey-group" style="display:none;">
+                    <label>
+                        <span id="config-apikey-label">API密钥</span>
+                        <a href="#" id="config-apikey-help" target="_blank" style="display:none;">获取帮助</a>
+                    </label>
+                    <div class="api-key-container">
+                        <div class="input-with-toggle">
+                            <input type="password" id="config-apikey-input" placeholder="请输入API密钥">
+                            <button id="config-toggle-apikey" class="toggle-btn" type="button" title="显示/隐藏">👁️</button>
+                        </div>
+                        <button id="config-test-connection" class="btn-secondary">测试连接</button>
+                    </div>
+                </div>
+
+                <!-- Server URL -->
+                <div class="form-group" id="config-serverurl-group" style="display:none;">
+                    <label>
+                        <span id="config-serverurl-label">服务器地址</span>
+                        <a href="#" id="config-serverurl-help" target="_blank" style="display:none;">获取帮助</a>
+                    </label>
+                    <div class="api-key-container">
+                        <input type="text" id="config-serverurl-input" placeholder="http://localhost:11434">
+                        <button id="config-test-server" class="btn-secondary">测试连接</button>
+                    </div>
+                </div>
+
+                <!-- 模型选择 -->
+                <div class="form-group">
+                    <label for="config-model-select">选择模型</label>
+                    <div class="model-controls">
+                        <select id="config-model-select" disabled>
+                            <option>请先配置API密钥并获取模型列表</option>
+                        </select>
+                        <button id="config-fetch-models" class="btn-action" disabled>获取模型列表</button>
+                    </div>
+                    <p class="hint" id="config-model-hint">配置API密钥后点击"获取模型列表"按钮</p>
+                </div>
+
+                <!-- 自定义模型 -->
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="config-custom-model-checkbox">
+                        <span>使用自定义模型</span>
+                    </label>
+                    <div id="config-custom-model-section" style="display:none;" class="custom-model-section">
+                        <input type="text" id="config-custom-model-input" placeholder="请输入自定义模型名称" class="custom-model-input">
+                        <p class="hint">某些提供商可能不支持远程获取模型列表，您可以在此手动输入模型名称</p>
+                    </div>
+                </div>
+
+                <!-- ====== 高级选项 ====== -->
+                <div class="advanced-section">
+                    <h4>高级选项</h4>
+
+                    <!-- 思考模式 -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="config-thinking-checkbox">
+                            <span>启用思考模式</span>
+                        </label>
+                        <p class="hint">启用后模型会进行深度思考再回答。对 DeepSeek R1 等推理模型建议开启。</p>
+                    </div>
+
+                    <!-- 推理强度 -->
+                    <div class="form-group" id="config-reasoning-group">
+                        <label for="config-reasoning-select">推理强度</label>
+                        <select id="config-reasoning-select">
+                            <option value="min">min</option>
+                            <option value="low" selected>low</option>
+                            <option value="medium">medium</option>
+                            <option value="high">high</option>
+                            <option value="max">max</option>
+                        </select>
+                    </div>
+
+                    <!-- 自定义推理强度 -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="config-custom-reasoning-checkbox">
+                            <span>自定义推理强度值</span>
+                        </label>
+                        <div id="config-custom-reasoning-section" style="display:none;" class="custom-model-section">
+                            <input type="text" id="config-custom-reasoning-input" placeholder="例如：xhigh、minimal、mini">
+                            <p class="hint">勾选后，下拉预设选项将被禁用，以你填写的自定义值为准。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modal-cancel" class="btn-secondary" type="button">取消</button>
+                <button id="modal-save" class="btn-primary" type="button">保存配置</button>
+            </div>
         </div>
     </div>
 

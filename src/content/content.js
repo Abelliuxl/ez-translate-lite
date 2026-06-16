@@ -1,26 +1,11 @@
 // content.js - 负责划词翻译的 UI 和交互
 
 // --- 存储辅助函数 ---
-async function getStorage() {
-    return new Promise((resolve) => {
-        if (!isExtensionContextValid()) {
-            resolve(null);
-            return;
-        }
-
-        try {
-            chrome.storage.local.get(['syncEnabled'], (result) => {
-                const syncEnabled = result.syncEnabled || false;
-                resolve(syncEnabled ? chrome.storage.sync : chrome.storage.local);
-            });
-        } catch (error) {
-            handleExtensionError(error);
-            resolve(null);
-        }
-    });
+function getStorage() {
+    return chrome.storage.local;
 }
 
-const TRANSLATE_UI_SELECTOR = '#llm-translate-toolbar, #llm-translate-popover, #llm-translate-replace-confirm';
+const TRANSLATE_UI_SELECTOR = '#llm-translate-toolbar, #llm-translate-popover';
 const EDITABLE_SELECTOR = 'textarea, input, [contenteditable]:not([contenteditable="false"])';
 const SUPPORTED_INPUT_TYPES = new Set([
     'text',
@@ -77,7 +62,6 @@ const aliasToEnName = {
 // --- 全局变量 ---
 let actionToolbar = null;
 let resultPopover = null;
-let replaceConfirmPopover = null;
 let isEnabled = true;
 let extensionContextInvalidated = false;
 let pendingSelectionTimer = null;
@@ -90,6 +74,9 @@ let activeTranslationRequestId = null;
 let thinkingAnimationTimer = null;
 let thinkingDotCount = 0;
 let runtimeMessageListenerBound = false;
+let storedPrimaryTranslation = '';
+let storedSecondaryTranslation = null;
+let showingPrimaryTranslation = true;
 const EDITABLE_SELECTION_CACHE_TTL = 1200;
 const THINKING_PLACEHOLDER_BASE = '思考中';
 
@@ -604,14 +591,15 @@ async function requestTranslation(text, options = {}) {
 
                 resolve({
                     translation: translationText,
+                    translation2: response.translation2 || null,
                     model: response.model || ''
                 });
             });
         } catch (error) {
             reject(new Error(toUserErrorMessage(error)));
         }
-    });
-}
+        });
+    }
 
 function createTranslationRequestId() {
     const randomSuffix = Math.random().toString(36).slice(2, 8);
@@ -697,6 +685,11 @@ function createSelectionToolbar(x, y, selectedText, editableContext) {
             if (result.translation) {
                 updateResultPopover(result.translation);
             }
+
+            if (result.translation2) {
+                storedSecondaryTranslation = result.translation2;
+                updateSwitchButtonVisibility();
+            }
             setResultPopoverThinking(false);
         } catch (error) {
             if (activeTranslationRequestId !== requestId) {
@@ -709,110 +702,8 @@ function createSelectionToolbar(x, y, selectedText, editableContext) {
 
     actionToolbar.appendChild(translateButton);
 
-    if (
-        editableContext &&
-        editableContext.fullText.trim() &&
-        (editableContext.type === 'text-control' || !isLikelyManagedContentEditable(editableContext.element))
-    ) {
-        const replaceButton = document.createElement('button');
-        replaceButton.type = 'button';
-        replaceButton.id = 'llm-translate-replace-icon';
-        replaceButton.className = 'llm-translate-action-btn';
-        replaceButton.title = getMessage('replaceInputButtonTitle', 'Translate and append to end of text');
-        replaceButton.textContent = 'T';
-        replaceButton.addEventListener('mousedown', preventFocusSteal);
-
-        replaceButton.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            showReplaceConfirmPopover(event.clientX, event.clientY, editableContext);
-        });
-
-        actionToolbar.appendChild(replaceButton);
-    }
-
     document.body.appendChild(actionToolbar);
     positionFloatingElement(actionToolbar, x, y);
-}
-
-function showReplaceConfirmPopover(x, y, editableContext) {
-    removeReplaceConfirmPopover();
-
-    replaceConfirmPopover = document.createElement('div');
-    replaceConfirmPopover.id = 'llm-translate-replace-confirm';
-    replaceConfirmPopover.innerHTML = `
-        <div class="llm-translate-confirm-message"></div>
-        <div class="llm-translate-confirm-actions">
-            <button type="button" class="llm-translate-confirm-btn" data-action="cancel"></button>
-            <button type="button" class="llm-translate-confirm-btn primary" data-action="confirm"></button>
-        </div>
-    `;
-
-    replaceConfirmPopover.addEventListener('mousedown', stopPropagation);
-    replaceConfirmPopover.addEventListener('mouseup', stopPropagation);
-
-    const message = replaceConfirmPopover.querySelector('.llm-translate-confirm-message');
-    const cancelButton = replaceConfirmPopover.querySelector('[data-action="cancel"]');
-    const confirmButton = replaceConfirmPopover.querySelector('[data-action="confirm"]');
-    cancelButton.addEventListener('mousedown', preventFocusSteal);
-    confirmButton.addEventListener('mousedown', preventFocusSteal);
-
-    renderStatusContent(
-        message,
-        getMessage('replaceInputConfirmMessage', 'Append the translation result to the end of the text?'),
-        false
-    );
-    cancelButton.textContent = getMessage('cancelButton', 'Cancel');
-    confirmButton.textContent = getMessage('confirmButton', 'Confirm');
-
-    cancelButton.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        removeReplaceConfirmPopover();
-    });
-
-    confirmButton.addEventListener('click', async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setReplaceConfirmState({
-            message: getMessage('statusTranslating', 'Translating...'),
-            loading: true
-        });
-
-        try {
-            const requestId = createTranslationRequestId();
-            const { translation } = await requestTranslation(editableContext.selectedText, {
-                stream: true,
-                requestId
-            });
-            if (!translation.trim()) {
-                throw new Error('翻译结果为空，未执行替换');
-            }
-            replaceEditableSelection(editableContext, translation);
-            removeTranslationUI();
-        } catch (error) {
-            setReplaceConfirmState({
-                message: toUserErrorMessage(error),
-                loading: false
-            });
-        }
-    });
-
-    document.body.appendChild(replaceConfirmPopover);
-    positionFloatingElement(replaceConfirmPopover, x, y, 14);
-}
-
-function setReplaceConfirmState({ message, loading }) {
-    if (!replaceConfirmPopover) return;
-
-    const messageElement = replaceConfirmPopover.querySelector('.llm-translate-confirm-message');
-    const buttons = replaceConfirmPopover.querySelectorAll('.llm-translate-confirm-btn');
-
-    renderStatusContent(messageElement, message, loading);
-
-    buttons.forEach((button) => {
-        button.disabled = loading;
-    });
 }
 
 function showResultPopover(x, y, content, loading = false) {
@@ -825,7 +716,10 @@ function showResultPopover(x, y, content, loading = false) {
                     <span id="llm-translate-popover-model">模型：--</span>
                     <span id="llm-translate-popover-thinking" style="display: none;"></span>
                 </div>
-                <button class="llm-translate-copy-btn small" id="llm-translate-popover-copy" title="${getMessage('copyTranslation', 'Copy translation')}">📋</button>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <button class="llm-translate-copy-btn small" id="llm-translate-popover-switch" title="切换译文" style="display:none;">⇄</button>
+                    <button class="llm-translate-copy-btn small" id="llm-translate-popover-copy" title="${getMessage('copyTranslation', 'Copy translation')}">📋</button>
+                </div>
             </div>
             <div id="llm-translate-popover-content"></div>
         `;
@@ -853,6 +747,13 @@ function showResultPopover(x, y, content, loading = false) {
             } catch (error) {
                 console.error('复制失败:', error);
             }
+        });
+
+        const switchBtn = resultPopover.querySelector('#llm-translate-popover-switch');
+        switchBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleTranslationView();
         });
     }
 
@@ -894,7 +795,10 @@ function applyTranslationStreamUpdate(message) {
     }
 
     if (message.stage === 'text' && typeof message.text === 'string') {
-        updateResultPopover(message.text);
+        storedPrimaryTranslation = message.text;
+        if (showingPrimaryTranslation) {
+            updateResultPopover(message.text);
+        }
         if (message.text.trim()) {
             setResultPopoverThinking(false);
         }
@@ -903,7 +807,11 @@ function applyTranslationStreamUpdate(message) {
 
     if (message.stage === 'done') {
         if (typeof message.translation === 'string' && message.translation) {
-            updateResultPopover(message.translation);
+            storedPrimaryTranslation = message.translation;
+            storedSecondaryTranslation = message.translation2 || null;
+            showingPrimaryTranslation = true;
+            updateResultPopover(storedPrimaryTranslation);
+            updateSwitchButtonVisibility();
         }
         setResultPopoverThinking(false);
     }
@@ -991,164 +899,6 @@ function positionFloatingElement(element, clientX, clientY, offsetY = 15) {
     element.style.top = `${top}px`;
 }
 
-// --- 输入内容替换 ---
-function replaceEditableSelection(editableContext, text) {
-    if (!editableContext || !editableContext.element) {
-        return;
-    }
-
-    if (editableContext.type === 'text-control') {
-        appendToTextControl(editableContext, text);
-        clearEditableSelectionContextCache();
-        return;
-    }
-
-    if (editableContext.type === 'contenteditable') {
-        appendToContentEditable(editableContext, text);
-        clearEditableSelectionContextCache();
-    }
-}
-
-function appendToTextControl(editableContext, text) {
-    const element = editableContext.element;
-    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
-        return;
-    }
-
-    element.focus();
-    const previousValue = element.value;
-    const expectedValue = previousValue + text;
-    const nextCaret = expectedValue.length;
-
-    // 直接赋值，保留浏览器内部输入状态管理，避免破坏选区能力
-    element.value = expectedValue;
-
-    if (typeof element.setSelectionRange === 'function') {
-        element.setSelectionRange(nextCaret, nextCaret);
-    }
-
-    notifyTextControlMutation(element, {
-        previousValue,
-        inputType: 'insertText',
-        data: text
-    });
-}
-
-function appendToContentEditable(editableContext, text) {
-    const element = editableContext.element;
-    if (!(element instanceof HTMLElement) || !element.isContentEditable) {
-        return;
-    }
-
-    if (isLikelyManagedContentEditable(element)) {
-        throw new Error('当前输入框由页面脚本托管，自动插入可能导致编辑器异常。请手动粘贴翻译结果。');
-    }
-
-    element.focus();
-    const selection = window.getSelection();
-    if (!selection) {
-        return;
-    }
-
-    // 将光标移到内容末尾，而非替换选区
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    let inserted = false;
-    try {
-        inserted = document.execCommand('insertText', false, text);
-    } catch (error) {
-        inserted = false;
-    }
-
-    if (!inserted) {
-        const textNode = document.createTextNode(text);
-        range.insertNode(textNode);
-        range.setStartAfter(textNode);
-        range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }
-
-    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-}
-
-function setTextControlValueWithSetter(element, text) {
-    const prototype = element instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-
-    if (valueSetter) {
-        valueSetter.call(element, text);
-        return;
-    }
-
-    element.value = text;
-}
-
-function notifyTextControlMutation(element, details = {}) {
-    const { previousValue = '', inputType = 'insertText', data = null } = details;
-    syncReactValueTracker(element, previousValue);
-    dispatchEditableInputEvent(element, { inputType, data });
-    // 一些站点只监听普通 Event('input') 或在 change 时才刷新布局。
-    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-}
-
-function syncReactValueTracker(element, previousValue) {
-    const tracker = element && element._valueTracker;
-    if (!tracker || typeof tracker.setValue !== 'function') {
-        return;
-    }
-
-    try {
-        tracker.setValue(String(previousValue));
-    } catch (error) {
-        // 忽略 tracker 同步失败，继续派发事件
-    }
-}
-
-function isLikelyManagedContentEditable(element) {
-    if (!(element instanceof HTMLElement)) {
-        return false;
-    }
-
-    if (
-        element.matches('[data-slate-editor="true"]') ||
-        element.matches('[data-lexical-editor="true"]')
-    ) {
-        return true;
-    }
-
-    return Boolean(
-        element.closest('.ProseMirror, .ql-editor, .ck-content, [data-slate-editor="true"], [data-lexical-editor="true"]')
-    );
-}
-
-function dispatchEditableInputEvent(element, details = {}) {
-    const { inputType = 'insertText', data = null } = details;
-
-    if (typeof InputEvent === 'function') {
-        try {
-            element.dispatchEvent(new InputEvent('input', {
-                bubbles: true,
-                composed: true,
-                data,
-                inputType
-            }));
-            return;
-        } catch (error) {
-            // 回退到普通 Event
-        }
-    }
-
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
 function preventFocusSteal(event) {
     event.preventDefault();
 }
@@ -1232,15 +982,6 @@ function removeSelectionActionUI() {
         actionToolbar.remove();
         actionToolbar = null;
     }
-
-    removeReplaceConfirmPopover();
-}
-
-function removeReplaceConfirmPopover() {
-    if (replaceConfirmPopover) {
-        replaceConfirmPopover.remove();
-        replaceConfirmPopover = null;
-    }
 }
 
 function removeTranslationUI() {
@@ -1252,10 +993,50 @@ function removeTranslationUI() {
         resultPopover.remove();
         resultPopover = null;
     }
+    storedPrimaryTranslation = '';
+    storedSecondaryTranslation = null;
+    showingPrimaryTranslation = true;
 }
 
 function stopPropagation(event) {
     event.stopPropagation();
+}
+
+function toggleTranslationView() {
+    if (storedSecondaryTranslation === null) return;
+    showingPrimaryTranslation = !showingPrimaryTranslation;
+    const text = showingPrimaryTranslation ? storedPrimaryTranslation : storedSecondaryTranslation;
+    animateSwitchTo(text);
+}
+
+function animateSwitchTo(newText) {
+    const contentDiv = document.querySelector('#llm-translate-popover-content');
+    if (!contentDiv) return;
+    contentDiv.style.opacity = '0';
+    const handler = () => {
+        contentDiv.removeEventListener('transitionend', handler);
+        contentDiv.textContent = newText;
+        void contentDiv.offsetHeight;
+        contentDiv.style.opacity = '1';
+    };
+    contentDiv.addEventListener('transitionend', handler, { once: true });
+    setTimeout(() => {
+        if (contentDiv.style.opacity === '0') {
+            contentDiv.removeEventListener('transitionend', handler);
+            contentDiv.textContent = newText;
+            contentDiv.style.opacity = '1';
+        }
+    }, 200);
+}
+
+function updateSwitchButtonVisibility() {
+    const switchBtn = document.querySelector('#llm-translate-popover-switch');
+    if (!switchBtn) return;
+    if (storedSecondaryTranslation) {
+        switchBtn.style.display = '';
+    } else {
+        switchBtn.style.display = 'none';
+    }
 }
 
 function resetTranslationStreamState() {

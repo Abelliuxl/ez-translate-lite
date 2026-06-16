@@ -147,85 +147,99 @@ const PROVIDER_CONFIG = {
     }
 };
 
-// --- 全局变量 ---
-let currentProvider = null;
-let currentSettings = {
-    apiKey: '',
-    serverUrl: '',
-    selectedModel: '',
-    useCustomModel: false,
-    customModel: '',
-    thinkingEnabled: false
-};
-let syncEnabled = false; // 默认关闭同步
+// --- 全局状态 ---
+let configurations = [];
+let activeConfigId = null;
+let editingConfigId = null; // null = 新建模式, string = 编辑模式
+let modalProviderSettings = {}; // 模态框内临时设置
 
-// 获取存储对象（根据同步开关决定使用 local 还是 sync）
-function getStorage() {
-    return syncEnabled ? chrome.storage.sync : chrome.storage.local;
-}
+// --- DOM 元素 ---
+const $ = (id) => document.getElementById(id);
 
-// --- DOM元素 ---
-const elements = {
-    providerSelect: document.getElementById('provider-select'),
-    providerConfig: document.getElementById('provider-config'),
-    apiKeyGroup: document.getElementById('api-key-group'),
-    serverUrlGroup: document.getElementById('server-url-group'),
-    apiKeyInput: document.getElementById('api-key-input'),
-    serverUrlInput: document.getElementById('server-url-input'),
-    apiKeyLabel: document.getElementById('api-key-label'),
-    serverUrlLabel: document.getElementById('server-url-label'),
-    apiKeyHelp: document.getElementById('api-key-help'),
-    serverUrlHelp: document.getElementById('server-url-help'),
-    testConnection: document.getElementById('test-connection'),
-    testServer: document.getElementById('test-server'),
-    modelSelect: document.getElementById('model-select'),
-    fetchModels: document.getElementById('fetch-models'),
-    modelHint: document.getElementById('model-hint'),
-    providerSpecific: document.getElementById('provider-specific-settings'),
-    toggleApiKey: document.getElementById('toggle-api-key'),
-    statusDiv: document.getElementById('status'),
-    defaultTargetLanguageSelect: document.getElementById('default-target-language'),
-    secondTargetLanguageSelect: document.getElementById('second-target-language'),
-    // 新增自定义模型相关元素
-    customModelCheckbox: document.getElementById('custom-model-checkbox'),
-    customModelSection: document.getElementById('custom-model-section'),
-    customModelInput: document.getElementById('custom-model-input'),
-    thinkingModeCheckbox: document.getElementById('thinking-mode-checkbox'),
-    // 保存按钮
-    saveSettingsBtn: document.getElementById('save-settings-btn'),
-    // 同步设置
-    enableSyncCheckbox: document.getElementById('enable-sync-checkbox')
+const el = {
+    // 配置列表
+    configList: $('config-list'),
+    configEmpty: $('config-empty'),
+    btnNewConfig: $('btn-new-config'),
+
+    // 模态框
+    modal: $('config-modal'),
+    modalOverlay: document.querySelector('.modal-overlay'),
+    modalTitle: $('modal-title'),
+    modalClose: $('modal-close'),
+    modalCancel: $('modal-cancel'),
+    modalSave: $('modal-save'),
+
+    // 模态框表单
+    configName: $('config-name'),
+    configProvider: $('config-provider'),
+    apiKeyGroup: $('config-apikey-group'),
+    apiKeyInput: $('config-apikey-input'),
+    apiKeyLabel: $('config-apikey-label'),
+    apiKeyHelp: $('config-apikey-help'),
+    toggleApiKey: $('config-toggle-apikey'),
+    testConnection: $('config-test-connection'),
+
+    serverUrlGroup: $('config-serverurl-group'),
+    serverUrlInput: $('config-serverurl-input'),
+    serverUrlLabel: $('config-serverurl-label'),
+    serverUrlHelp: $('config-serverurl-help'),
+    testServer: $('config-test-server'),
+
+    modelSelect: $('config-model-select'),
+    fetchModels: $('config-fetch-models'),
+    modelHint: $('config-model-hint'),
+
+    customModelCheckbox: $('config-custom-model-checkbox'),
+    customModelSection: $('config-custom-model-section'),
+    customModelInput: $('config-custom-model-input'),
+
+    thinkingCheckbox: $('config-thinking-checkbox'),
+    reasoningSelect: $('config-reasoning-select'),
+    customReasoningCheckbox: $('config-custom-reasoning-checkbox'),
+    customReasoningSection: $('config-custom-reasoning-section'),
+    customReasoningInput: $('config-custom-reasoning-input'),
+
+    // 语言选择
+    defaultTargetLanguage: $('default-target-language'),
+    secondTargetLanguage: $('second-target-language'),
 };
 
 // --- 工具函数 ---
+function generateConfigId() {
+    const ts = Date.now();
+    const rand = Math.random().toString(36).substring(2, 8);
+    return `cfg_${ts}_${rand}`;
+}
+
+function maskApiKey(key) {
+    if (!key || key.length < 8) return key ? key.substring(0, 3) + '****' : '';
+    return key.substring(0, 3) + '****' + key.substring(key.length - 4);
+}
+
+function getProviderName(providerId) {
+    return PROVIDER_CONFIG[providerId]?.name || providerId;
+}
+
+// --- Toast ---
 function showStatus(message, type = 'info', duration = 3000) {
-    // 创建 Toast 容器（如果不存在）
     let container = document.querySelector('.toast-container');
     if (!container) {
         container = document.createElement('div');
         container.className = 'toast-container';
         document.body.appendChild(container);
     }
-
-    // 创建 Toast 元素
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
-
-    // 添加到容器
     container.appendChild(toast);
-
-    // 触发动画
     setTimeout(() => toast.classList.add('show'), 10);
-
-    // 自动移除
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => {
             if (toast.parentNode === container) {
                 container.removeChild(toast);
             }
-            // 如果容器空了，移除容器
             if (container.childNodes.length === 0) {
                 document.body.removeChild(container);
             }
@@ -233,191 +247,395 @@ function showStatus(message, type = 'info', duration = 3000) {
     }, duration);
 }
 
-function saveProviderSettings() {
-    const effectiveModel = getEffectiveModel(currentSettings);
+// --- 数据持久化 ---
+function getStorage() {
+    return chrome.storage.local;
+}
 
-    getStorage().get(['providerSettings'], (result) => {
-        const allSettings = result.providerSettings || {};
-        
-        // 保存当前供应商的特定设置
-        if (currentProvider) {
-            if (!allSettings.providers) allSettings.providers = {};
-            allSettings.providers[currentProvider] = {
-                apiKey: currentSettings.apiKey,
-                serverUrl: currentSettings.serverUrl,
-                selectedModel: effectiveModel,
-                useCustomModel: currentSettings.useCustomModel,
-                customModel: currentSettings.customModel,
-                thinkingEnabled: currentSettings.thinkingEnabled
-            };
-        }
-        
-        // 保存当前选中的供应商
-        allSettings.currentProvider = currentProvider;
-        
-        // 为了向后兼容，保留顶层字段（可选，但为了 background.js 方便）
-        allSettings.apiKey = currentSettings.apiKey;
-        allSettings.serverUrl = currentSettings.serverUrl;
-        allSettings.selectedModel = effectiveModel;
-        allSettings.useCustomModel = currentSettings.useCustomModel;
-        allSettings.customModel = currentSettings.customModel;
+async function loadConfigurations() {
+    const storage = getStorage();
+    const result = await storage.get(['configurations', 'activeConfigId']);
+    configurations = result.configurations || [];
+    activeConfigId = result.activeConfigId || null;
+}
 
-        getStorage().set({ providerSettings: allSettings });
+async function saveConfigurations() {
+    const storage = getStorage();
+    await storage.set({
+        configurations,
+        activeConfigId
     });
 }
 
-function getProviderSettingsFromStorage(allSettings = {}, providerId = currentProvider) {
-    const providers = (allSettings.providers && typeof allSettings.providers === 'object')
-        ? allSettings.providers
-        : null;
-    const hasProvidersMap = Boolean(providers && Object.keys(providers).length > 0);
-    const providerData = (providers && providerId && providers[providerId]) || {};
-    const hasProviderData = Object.keys(providerData).length > 0;
+// --- 自动迁移旧格式 ---
+async function migrateFromOldFormat() {
+    if (configurations.length > 0) return; // 已迁移
 
-    // 仅在无 provider 映射（旧格式）或已存在当前 provider 数据时，才回退顶层字段
-    const fallbackData = (!hasProvidersMap || hasProviderData) ? allSettings : {};
+    const storage = getStorage();
+    const result = await storage.get('providerSettings');
+    const old = result.providerSettings;
+    if (!old) return;
 
-    const useCustomModel = providerData.useCustomModel ?? fallbackData.useCustomModel ?? false;
-    const selectedModel = ((providerData.selectedModel ?? fallbackData.selectedModel) || '').trim();
-    const customModel = ((providerData.customModel ?? fallbackData.customModel) || '').trim();
-    const thinkingEnabled = providerData.thinkingEnabled ?? fallbackData.thinkingEnabled ?? false;
+    const migrated = [];
 
+    if (old.providers && typeof old.providers === 'object') {
+        for (const [providerId, data] of Object.entries(old.providers)) {
+            if (!data.apiKey) continue;
+            const config = createConfigFromOldData(providerId, data);
+            if (config) migrated.push(config);
+        }
+    }
+
+    // 顶层单条数据（更旧格式）
+    if (migrated.length === 0 && old.apiKey) {
+        const config = createConfigFromOldData(old.currentProvider || '', old);
+        if (config) migrated.push(config);
+    }
+
+    if (migrated.length > 0) {
+        configurations = migrated;
+        activeConfigId = migrated[0].id;
+        await saveConfigurations();
+        showStatus(`已自动迁移 ${migrated.length} 个旧配置到新格式`, 'success');
+    }
+}
+
+function createConfigFromOldData(providerId, data) {
+    if (!providerId || !data) return null;
+    const providerName = getProviderName(providerId);
+    const model = data.selectedModel || data.customModel || '';
     return {
-        apiKey: (providerData.apiKey ?? fallbackData.apiKey ?? '').trim(),
-        serverUrl: (providerData.serverUrl ?? fallbackData.serverUrl ?? '').trim(),
-        selectedModel: useCustomModel ? (customModel || selectedModel) : selectedModel,
-        useCustomModel,
-        customModel,
-        thinkingEnabled
+        id: generateConfigId(),
+        name: `${providerName}${model ? ' - ' + model : ''}`,
+        provider: providerId,
+        apiKey: data.apiKey || '',
+        serverUrl: data.serverUrl || '',
+        model: data.selectedModel || '',
+        useCustomModel: Boolean(data.useCustomModel),
+        customModel: data.customModel || '',
+        thinkingEnabled: Boolean(data.thinkingEnabled),
+        reasoningEffort: 'low',
+        useCustomReasoningEffort: false,
+        customReasoningEffort: ''
     };
 }
 
-async function loadProviderSettings() {
-    const storage = getStorage();
-    const result = await storage.get(['providerSettings']);
-    if (result.providerSettings) {
-        const allSettings = result.providerSettings;
-        currentProvider = allSettings.currentProvider;
-        
-        if (currentProvider) {
-            elements.providerSelect.value = currentProvider;
-            
-            // 优先加载该供应商的特定设置，并兼容旧版顶层字段
-            currentSettings = getProviderSettingsFromStorage(allSettings, currentProvider);
-            
-            await setupProviderConfig(currentProvider);
+// --- 配置卡片渲染 ---
+function renderConfigList() {
+    el.configList.innerHTML = '';
+
+    if (configurations.length === 0) {
+        el.configEmpty.style.display = 'block';
+        return;
+    }
+    el.configEmpty.style.display = 'none';
+
+    configurations.forEach(config => {
+        const card = createConfigCard(config);
+        el.configList.appendChild(card);
+    });
+}
+
+function createConfigCard(config) {
+    const isActive = config.id === activeConfigId;
+    const card = document.createElement('div');
+    card.className = `config-card${isActive ? ' active' : ''}`;
+    card.dataset.configId = config.id;
+
+    const providerName = getProviderName(config.provider);
+    const modelName = config.useCustomModel ? config.customModel : config.model;
+    const thinkingStatus = config.thinkingEnabled ? '开启' : '关闭';
+    let reasoningDisplay = config.reasoningEffort || 'low';
+    if (config.useCustomReasoningEffort && config.customReasoningEffort) {
+        reasoningDisplay = config.customReasoningEffort;
+    }
+
+    card.innerHTML = `
+        <div class="config-card-header">
+            <div class="config-card-name">
+                ${escHtml(config.name)}
+                ${isActive ? '<span class="config-card-badge">当前生效</span>' : ''}
+            </div>
+            <div class="config-card-actions">
+                <button class="config-card-icon-btn" data-action="edit" title="编辑">✏️</button>
+                <button class="config-card-icon-btn config-card-icon-delete" data-action="delete" title="删除">✕</button>
+                <label class="config-card-toggle" title="${isActive ? '当前生效' : '点击启用'}">
+                    <input type="checkbox" data-action="activate" ${isActive ? 'checked' : ''}>
+                    <span class="config-card-toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+        <div class="config-card-meta">
+            <span>${escHtml(providerName)}</span>
+            <span>模型: ${escHtml(modelName || '未设置')}</span>
+            <span class="detail-item"><span class="detail-label">API: </span><span class="detail-value">${escHtml(maskApiKey(config.apiKey))}</span></span>
+            <span class="detail-item"><span class="detail-label">Think: </span><span class="detail-value">${thinkingStatus}</span></span>
+            <span class="detail-item"><span class="detail-label">Reason: </span><span class="detail-value">${escHtml(reasoningDisplay)}</span></span>
+        </div>
+    `;
+
+    card.querySelector('[data-action="edit"]').addEventListener('click', () => openEditConfigModal(config.id));
+    card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteConfig(config.id));
+    card.querySelector('[data-action="activate"]').addEventListener('change', (e) => {
+        if (e.target.checked) {
+            setActiveConfig(config.id);
+        } else {
+            e.target.checked = true;
         }
+    });
+
+    return card;
+}
+
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
+// --- CRUD 操作 ---
+async function setActiveConfig(configId) {
+    activeConfigId = configId;
+    await saveConfigurations();
+    renderConfigList();
+    showStatus(`已切换到配置: ${configurations.find(c => c.id === configId)?.name}`, 'success');
+}
+
+async function deleteConfig(configId) {
+    const config = configurations.find(c => c.id === configId);
+    if (!config) return;
+
+    if (!confirm(`确定删除配置「${config.name}」吗？`)) return;
+
+    configurations = configurations.filter(c => c.id !== configId);
+
+    if (activeConfigId === configId) {
+        activeConfigId = configurations.length > 0 ? configurations[0].id : null;
+    }
+
+    await saveConfigurations();
+    renderConfigList();
+    showStatus('配置已删除', 'success');
+}
+
+// --- 模态框 ---
+function openNewConfigModal() {
+    editingConfigId = null;
+    el.modalTitle.textContent = '新建配置';
+    resetModalForm();
+    showModal();
+}
+
+function openEditConfigModal(configId) {
+    const config = configurations.find(c => c.id === configId);
+    if (!config) return;
+
+    editingConfigId = configId;
+    el.modalTitle.textContent = '编辑配置';
+    fillModalForm(config);
+    showModal();
+}
+
+function showModal() {
+    el.modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    el.modal.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function resetModalForm() {
+    el.configName.value = '';
+    el.configProvider.value = '';
+    el.apiKeyGroup.style.display = 'none';
+    el.serverUrlGroup.style.display = 'none';
+    el.apiKeyInput.value = '';
+    el.serverUrlInput.value = '';
+    el.modelSelect.innerHTML = '<option>请先配置API密钥并获取模型列表</option>';
+    el.modelSelect.disabled = true;
+    el.fetchModels.disabled = true;
+    el.fetchModels.textContent = '获取模型列表';
+    el.customModelCheckbox.checked = false;
+    el.customModelSection.style.display = 'none';
+    el.customModelInput.value = '';
+    el.thinkingCheckbox.checked = false;
+    el.reasoningSelect.value = 'low';
+    el.customReasoningCheckbox.checked = false;
+    el.customReasoningSection.style.display = 'none';
+    el.customReasoningInput.value = '';
+    el.modelHint.textContent = '配置API密钥后点击"获取模型列表"按钮';
+
+    modalProviderSettings = {};
+}
+
+function fillModalForm(config) {
+    el.configName.value = config.name || '';
+    el.configProvider.value = config.provider || '';
+    el.apiKeyInput.value = config.apiKey || '';
+    el.serverUrlInput.value = config.serverUrl || '';
+    el.customModelCheckbox.checked = Boolean(config.useCustomModel);
+    el.customModelSection.style.display = config.useCustomModel ? 'block' : 'none';
+    el.customModelInput.value = config.customModel || '';
+    el.thinkingCheckbox.checked = Boolean(config.thinkingEnabled);
+    el.reasoningSelect.value = config.reasoningEffort || 'low';
+    el.customReasoningCheckbox.checked = Boolean(config.useCustomReasoningEffort);
+    el.customReasoningSection.style.display = config.useCustomReasoningEffort ? 'block' : 'none';
+    el.customReasoningInput.value = config.customReasoningEffort || '';
+
+    modalProviderSettings = {
+        apiKey: config.apiKey || '',
+        serverUrl: config.serverUrl || '',
+        selectedModel: config.model || '',
+        useCustomModel: Boolean(config.useCustomModel),
+        customModel: config.customModel || '',
+    };
+
+    // 触发提供商配置 UI
+    const providerId = config.provider;
+    if (providerId && PROVIDER_CONFIG[providerId]) {
+        setupModalProviderConfig(providerId, true);
     }
 }
 
-// --- 提供商配置 ---
-async function setupProviderConfig(providerId) {
+function collectModalForm() {
+    const providerId = el.configProvider.value;
+    const useCustomModel = el.customModelCheckbox.checked;
+    const model = useCustomModel ? el.customModelInput.value : el.modelSelect.value;
+
+    return {
+        id: editingConfigId || generateConfigId(),
+        name: el.configName.value.trim() || getProviderName(providerId) + ' 配置',
+        provider: providerId,
+        apiKey: el.apiKeyInput.value.trim(),
+        serverUrl: el.serverUrlInput.value.trim(),
+        model: model || '',
+        useCustomModel,
+        customModel: useCustomModel ? el.customModelInput.value.trim() : '',
+        thinkingEnabled: el.thinkingCheckbox.checked,
+        reasoningEffort: el.reasoningSelect.value,
+        useCustomReasoningEffort: el.customReasoningCheckbox.checked,
+        customReasoningEffort: el.customReasoningCheckbox.checked ? el.customReasoningInput.value.trim() : ''
+    };
+}
+
+async function saveConfigFromModal() {
+    const data = collectModalForm();
+
+    if (!data.provider) {
+        showStatus('请选择提供商', 'error');
+        return;
+    }
+
+    const config = PROVIDER_CONFIG[data.provider];
+    if (config?.needApiKey && !data.apiKey) {
+        showStatus('请输入 API Key', 'error');
+        return;
+    }
+    if (config?.needServerUrl && !data.serverUrl) {
+        showStatus('请输入服务器地址', 'error');
+        return;
+    }
+
+    if (!data.model) {
+        showStatus('请选择或输入模型名称', 'error');
+        return;
+    }
+
+    if (editingConfigId) {
+        const idx = configurations.findIndex(c => c.id === editingConfigId);
+        if (idx !== -1) {
+            configurations[idx] = data;
+        }
+    } else {
+        configurations.push(data);
+        if (!activeConfigId) {
+            activeConfigId = data.id;
+        }
+    }
+
+    await saveConfigurations();
+    renderConfigList();
+    closeModal();
+
+    if (editingConfigId) {
+        showStatus('配置已更新', 'success');
+    } else {
+        showStatus('配置已创建', 'success');
+    }
+}
+
+// --- 模态框提供商配置 ---
+async function setupModalProviderConfig(providerId, skipApiKeyCheck = false) {
     const config = PROVIDER_CONFIG[providerId];
     if (!config) return;
 
-    // 如果切换了供应商，先加载该供应商的设置
-    if (currentProvider !== providerId) {
-        currentProvider = providerId;
-        const storage = getStorage();
-        const result = await storage.get(['providerSettings']);
-        const allSettings = result.providerSettings || {};
+    modalProviderSettings.provider = providerId;
 
-        currentSettings = getProviderSettingsFromStorage(allSettings, providerId);
-    }
-
-    // 显示配置区域
-    elements.providerConfig.style.display = 'block';
-    
-    // 配置API密钥组
+    // API Key
     if (config.needApiKey) {
-        elements.apiKeyGroup.style.display = 'block';
-        elements.apiKeyLabel.textContent = config.apiKeyLabel;
-        elements.apiKeyInput.placeholder = config.apiKeyPlaceholder;
-        elements.apiKeyHelp.href = config.apiKeyHelp;
-        elements.apiKeyInput.value = currentSettings.apiKey;
+        el.apiKeyGroup.style.display = 'block';
+        el.apiKeyLabel.textContent = config.apiKeyLabel;
+        el.apiKeyInput.placeholder = config.apiKeyPlaceholder;
+        el.apiKeyHelp.href = config.apiKeyHelp || '#';
+        el.apiKeyHelp.style.display = config.apiKeyHelp ? 'inline' : 'none';
+
+        if (!skipApiKeyCheck) {
+            el.apiKeyInput.value = modalProviderSettings.apiKey || '';
+        }
     } else {
-        elements.apiKeyGroup.style.display = 'none';
+        el.apiKeyGroup.style.display = 'none';
     }
-    
-    // 配置服务器地址组
+
+    // Server URL
     if (config.needServerUrl) {
-        elements.serverUrlGroup.style.display = 'block';
-        elements.serverUrlLabel.textContent = config.serverUrlLabel || '服务器地址';
-        elements.serverUrlInput.placeholder = config.serverUrlPlaceholder || 'http://localhost:11434';
-        elements.serverUrlHelp.href = config.serverUrlHelp || '#';
-        elements.serverUrlInput.value = currentSettings.serverUrl;
-        
-        // 更新测试按钮的文本
-        elements.testServer.textContent = `测试${config.name}连接`;
+        el.serverUrlGroup.style.display = 'block';
+        el.serverUrlLabel.textContent = config.serverUrlLabel || '服务器地址';
+        el.serverUrlInput.placeholder = config.serverUrlPlaceholder || 'http://localhost:11434';
+        el.serverUrlHelp.href = config.serverUrlHelp || '#';
+        el.serverUrlHelp.style.display = config.serverUrlHelp ? 'inline' : 'none';
     } else {
-        elements.serverUrlGroup.style.display = 'none';
+        el.serverUrlGroup.style.display = 'none';
     }
-    
-    // 重置模型选择
-    elements.modelSelect.innerHTML = '<option>请先获取模型列表</option>';
-    elements.modelSelect.disabled = true;
-    elements.fetchModels.disabled = !hasValidCredentials();
-    
-    // 如果有固定的模型列表，直接填充
+
+    // 模型选择
+    el.modelSelect.innerHTML = '<option>请先获取模型列表</option>';
+    el.modelSelect.disabled = true;
+    el.fetchModels.disabled = !hasModalValidCredentials();
+
     if (config.fixedModels) {
-        populateFixedModels(config.fixedModels);
+        populateModalFixedModels(config.fixedModels, skipApiKeyCheck);
     }
-    
-    // 显示提供商特定提示
-    updateProviderSpecificHint(providerId);
-    
-    // 初始化自定义模型相关UI
-    elements.customModelCheckbox.checked = currentSettings.useCustomModel;
-    elements.customModelInput.value = currentSettings.customModel;
-    updateCustomModelUI();
-    
-    // 初始化思考模式
-    elements.thinkingModeCheckbox.checked = currentSettings.thinkingEnabled;
-    
-    // 如果有保存的设置，尝试加载模型
-    if (hasValidCredentials() && currentSettings.selectedModel && !currentSettings.useCustomModel) {
-        await fetchModels();
+
+    updateModalModelHint(providerId);
+
+    // 自定义模型
+    if (!skipApiKeyCheck) {
+        el.customModelCheckbox.checked = Boolean(modalProviderSettings.useCustomModel);
+        el.customModelInput.value = modalProviderSettings.customModel || '';
+        updateModalCustomModelUI();
+    }
+
+    // 如果有保存的凭据，尝试加载模型
+    if (!skipApiKeyCheck && hasModalValidCredentials() && modalProviderSettings.selectedModel && !modalProviderSettings.useCustomModel) {
+        await fetchModalModels();
     }
 }
 
-function hasValidCredentials() {
-    const config = PROVIDER_CONFIG[currentProvider];
+function hasModalValidCredentials() {
+    const providerId = el.configProvider.value;
+    if (!providerId) return false;
+    const config = PROVIDER_CONFIG[providerId];
     if (!config) return false;
-    
-    if (config.needApiKey && !currentSettings.apiKey.trim()) return false;
-    if (config.needServerUrl && !currentSettings.serverUrl.trim()) return false;
-    
+    if (config.needApiKey && !el.apiKeyInput.value.trim()) return false;
+    if (config.needServerUrl && !el.serverUrlInput.value.trim()) return false;
     return true;
 }
 
-function getEffectiveModel(settings = currentSettings) {
-    const selectedModel = (settings.selectedModel || '').trim();
-    const customModel = (settings.customModel || '').trim();
-
-    if (settings.useCustomModel) {
-        // 兼容历史数据：部分旧版本会把自定义模型仅写入 selectedModel
-        return customModel || selectedModel;
-    }
-
-    return selectedModel;
-}
-
-function hasConfiguredModel(config, settings = currentSettings) {
-    if (!config) {
-        return false;
-    }
-
-    if (Array.isArray(config.fixedModels) && config.fixedModels.length > 0) {
-        return true;
-    }
-
-    return Boolean(getEffectiveModel(settings));
-}
-
-function updateProviderSpecificHint(providerId) {
+function updateModalModelHint(providerId) {
     const config = PROVIDER_CONFIG[providerId];
     let hint = '';
-    
     if (providerId === 'ollama') {
         hint = '⚠️ 使用 Ollama 前，请设置环境变量 OLLAMA_ORIGINS="*" 并重启 Ollama 服务以允许浏览器访问。';
     } else if (providerId === 'lmstudio') {
@@ -425,65 +643,138 @@ function updateProviderSpecificHint(providerId) {
     } else if (providerId === 'vllm') {
         hint = '请确保 vLLM 服务器正在运行。';
     }
-    
-    elements.modelHint.textContent = hint || config.apiKeyHelp ? '配置完成后点击"获取模型列表"按钮' : '';
+    el.modelHint.textContent = hint || (config?.apiKeyHelp ? '配置完成后点击"获取模型列表"按钮' : '');
 }
 
-function populateFixedModels(models) {
-    elements.modelSelect.innerHTML = '';
+function populateModalFixedModels(models, skipApiKeyCheck) {
+    el.modelSelect.innerHTML = '';
     models.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model;
-        option.textContent = model;
-        elements.modelSelect.appendChild(option);
+        const opt = document.createElement('option');
+        opt.value = model;
+        opt.textContent = model;
+        el.modelSelect.appendChild(opt);
     });
-    
-    if (currentSettings.selectedModel && models.includes(currentSettings.selectedModel)) {
-        elements.modelSelect.value = currentSettings.selectedModel;
+
+    if (!skipApiKeyCheck && modalProviderSettings.selectedModel && models.includes(modalProviderSettings.selectedModel)) {
+        el.modelSelect.value = modalProviderSettings.selectedModel;
     } else if (models.length > 0) {
-        elements.modelSelect.value = models[0];
-        currentSettings.selectedModel = models[0];
-        saveProviderSettings();
+        el.modelSelect.value = models[0];
+        modalProviderSettings.selectedModel = models[0];
     }
-    
-    elements.modelSelect.disabled = false;
+
+    el.modelSelect.disabled = false;
 }
 
-// --- 自定义模型功能 ---
-function updateCustomModelUI() {
-    const isChecked = elements.customModelCheckbox.checked;
-    const previousCustomModel = currentSettings.customModel;
-    elements.customModelSection.style.display = isChecked ? 'block' : 'none';
-    
+function updateModalCustomModelUI() {
+    const isChecked = el.customModelCheckbox.checked;
+    el.customModelSection.style.display = isChecked ? 'block' : 'none';
+
     if (isChecked) {
-        // 启用自定义模型时，禁用模型选择和获取按钮
-        elements.modelSelect.disabled = true;
-        elements.fetchModels.disabled = true;
-        
-        // 如果有自定义模型名称，设置为选中状态
-        if (currentSettings.customModel) {
-            currentSettings.selectedModel = currentSettings.customModel;
-        } else {
-            currentSettings.selectedModel = '';
-        }
+        el.modelSelect.disabled = true;
+        el.fetchModels.disabled = true;
     } else {
-        // 禁用自定义模型时，恢复正常状态
-        elements.modelSelect.disabled = !elements.modelSelect.options.length || elements.modelSelect.options.length <= 1;
-        elements.fetchModels.disabled = !hasValidCredentials();
-        
-        // 清空自定义模型，恢复之前的选中模型
-        currentSettings.customModel = '';
-        elements.customModelInput.value = '';
-
-        if (elements.modelSelect.options.length > 0) {
-            const selectedOptionValue = elements.modelSelect.value || '';
-            currentSettings.selectedModel = selectedOptionValue;
-        } else if (currentSettings.selectedModel === previousCustomModel) {
-            currentSettings.selectedModel = '';
-        }
+        el.modelSelect.disabled = el.modelSelect.options.length <= 1;
+        el.fetchModels.disabled = !hasModalValidCredentials();
     }
 }
 
+// --- 模态框 API 调用 ---
+async function fetchModalModels() {
+    const providerId = el.configProvider.value;
+    const config = PROVIDER_CONFIG[providerId];
+    if (!config) return;
+
+    try {
+        el.fetchModels.textContent = '获取中...';
+        el.fetchModels.disabled = true;
+        el.modelSelect.innerHTML = '<option>正在获取模型列表...</option>';
+
+        let models = [];
+
+        if (config.fixedModels) {
+            models = config.fixedModels;
+        } else if (providerId === 'ollama') {
+            const resp = await fetch(`${el.serverUrlInput.value}/api/tags`);
+            if (!resp.ok) throw new Error('Failed to fetch Ollama models');
+            const data = await resp.json();
+            models = data.models.map(m => m.name);
+        } else if (config.modelsEndpoint) {
+            let url = config.modelsEndpoint;
+            let headers = {};
+
+            if (config.apiFormat === 'openai' && config.needApiKey) {
+                headers['Authorization'] = `Bearer ${el.apiKeyInput.value}`;
+                if (url.includes('openrouter.ai')) {
+                    headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
+                    headers['X-Title'] = 'EZ Translate Extension';
+                }
+            } else if (config.apiFormat === 'custom-openai') {
+                headers['Authorization'] = `Bearer ${el.apiKeyInput.value}`;
+            } else if (config.apiFormat === 'google') {
+                url = `${url}?key=${el.apiKeyInput.value}`;
+            } else if (config.apiFormat === 'anthropic') {
+                headers['x-api-key'] = el.apiKeyInput.value;
+                headers['anthropic-version'] = '2023-06-01';
+            }
+
+            let urlCandidates = [url];
+            if (config.needServerUrl && providerId !== 'ollama') {
+                if (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') {
+                    urlCandidates = buildEndpointCandidates(el.serverUrlInput.value, '/models');
+                } else {
+                    urlCandidates = [buildV1Endpoint(el.serverUrlInput.value, '/models')];
+                }
+            }
+
+            const baseOptions = { headers, credentials: 'omit' };
+            const { response } = config.apiFormat === 'custom-anthropic'
+                ? await fetchWithHeaderVariants(urlCandidates, baseOptions, getAnthropicAuthHeaderVariants(el.apiKeyInput.value), [404])
+                : await fetchWithFallback(urlCandidates, baseOptions, [404]);
+            const data = await response.json();
+
+            if (config.modelsFilter) {
+                const filtered = config.modelsFilter(data);
+                models = Array.isArray(filtered) ? filtered.map(m => m.id || m.name || m) : filtered;
+            } else if (data.data) {
+                models = data.data.map(m => m.id || m.name || m);
+            } else if (data.models) {
+                models = data.models.map(m => m.name || m.id || m);
+            }
+        }
+
+        el.modelSelect.innerHTML = '';
+        models.forEach(model => {
+            const opt = document.createElement('option');
+            opt.value = model;
+            opt.textContent = model;
+            el.modelSelect.appendChild(opt);
+        });
+
+        if (modalProviderSettings.selectedModel && models.includes(modalProviderSettings.selectedModel)) {
+            el.modelSelect.value = modalProviderSettings.selectedModel;
+        } else if (models.length > 0) {
+            el.modelSelect.value = models[0];
+            modalProviderSettings.selectedModel = models[0];
+        }
+
+        el.modelSelect.disabled = false;
+        showStatus(`成功获取 ${models.length} 个模型`, 'success');
+
+    } catch (error) {
+        el.modelSelect.innerHTML = '<option>获取模型失败</option>';
+        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') &&
+            (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
+            showStatus('当前兼容供应商未提供模型列表接口，请勾选"使用自定义模型"并手动填写模型名', 'error');
+        } else {
+            showStatus(`获取模型失败: ${error.message}`, 'error');
+        }
+    } finally {
+        el.fetchModels.textContent = '获取模型列表';
+        el.fetchModels.disabled = false;
+    }
+}
+
+// --- API 工具函数（复用于测试连接） ---
 function normalizeBaseUrl(url) {
     return (url || '').trim().replace(/\/+$/, '');
 }
@@ -533,9 +824,7 @@ async function extractErrorMessage(response, fallback = '请求失败') {
 
 async function fetchWithFallback(urlCandidates, options = {}, retryStatuses = [404], acceptedStatuses = []) {
     const candidates = (Array.isArray(urlCandidates) ? urlCandidates : [urlCandidates]).filter(Boolean);
-    if (candidates.length === 0) {
-        throw new Error('请求地址为空');
-    }
+    if (candidates.length === 0) throw new Error('请求地址为空');
 
     let lastError = null;
     for (let i = 0; i < candidates.length; i++) {
@@ -545,73 +834,51 @@ async function fetchWithFallback(urlCandidates, options = {}, retryStatuses = [4
             if (response.ok || acceptedStatuses.includes(response.status)) {
                 return { url, response };
             }
-            if (retryStatuses.includes(response.status) && i < candidates.length - 1) {
-                continue;
-            }
+            if (retryStatuses.includes(response.status) && i < candidates.length - 1) continue;
             const message = await extractErrorMessage(response, `HTTP ${response.status}`);
             const error = new Error(message);
             error.status = response.status;
             throw error;
         } catch (error) {
             lastError = error;
-            if (i === candidates.length - 1) {
-                throw error;
-            }
+            if (i === candidates.length - 1) throw error;
         }
     }
-
     throw lastError || new Error('请求失败');
 }
 
 function getAnthropicAuthHeaderVariants(apiKey) {
     return [
-        {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json'
-        },
-        {
-            'Authorization': `Bearer ${apiKey}`,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json'
-        }
+        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        { 'Authorization': `Bearer ${apiKey}`, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }
     ];
 }
 
 function getCustomAnthropicProbeModels(preferredModel = '') {
-    const candidates = [
+    return [...new Set([
         preferredModel,
-        currentSettings.customModel,
+        modalProviderSettings.customModel || '',
         'LongCat-Flash-Chat',
         'claude-3-5-haiku-latest',
         'claude-3-5-sonnet-latest'
-    ].map((item) => (item || '').trim()).filter(Boolean);
-    return [...new Set(candidates)];
+    ].filter(Boolean))];
 }
 
 async function fetchWithHeaderVariants(urlCandidates, baseOptions, headerVariants, retryStatuses = [404], acceptedStatuses = []) {
     const authRetryStatuses = [401, 403, 404];
-    const acceptedWithoutAuthRetry = acceptedStatuses.filter((status) => !authRetryStatuses.includes(status));
     let lastError = null;
     for (let i = 0; i < headerVariants.length; i++) {
         const options = {
             ...baseOptions,
-            headers: {
-                ...(baseOptions.headers || {}),
-                ...headerVariants[i]
-            }
+            headers: { ...(baseOptions.headers || {}), ...headerVariants[i] }
         };
         try {
-            const result = await fetchWithFallback(urlCandidates, options, retryStatuses, acceptedWithoutAuthRetry);
-            if (authRetryStatuses.includes(result.response.status) && i < headerVariants.length - 1) {
-                continue;
-            }
+            const result = await fetchWithFallback(urlCandidates, options, retryStatuses, acceptedStatuses);
+            if (authRetryStatuses.includes(result.response.status) && i < headerVariants.length - 1) continue;
             return result;
         } catch (error) {
             lastError = error;
-            if (authRetryStatuses.includes(error.status) && i < headerVariants.length - 1) {
-                continue;
-            }
+            if (authRetryStatuses.includes(error.status) && i < headerVariants.length - 1) continue;
             throw error;
         }
     }
@@ -623,70 +890,54 @@ async function probeCustomAnthropicConnection(serverUrl, apiKey, preferredModel 
     const modelsToTry = getCustomAnthropicProbeModels(preferredModel);
     let lastError = null;
 
-    for (let i = 0; i < modelsToTry.length; i++) {
-        const probeModel = modelsToTry[i];
+    for (const probeModel of modelsToTry) {
         const options = {
             method: 'POST',
-            body: JSON.stringify({
-                model: probeModel,
-                max_tokens: 1,
-                messages: [{ role: 'user', content: 'Hi' }]
-            }),
+            body: JSON.stringify({ model: probeModel, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] }),
             credentials: 'omit'
         };
-
         try {
-            const result = await fetchWithHeaderVariants(
-                urlCandidates,
-                options,
-                getAnthropicAuthHeaderVariants(apiKey),
-                [404],
-                [400, 401, 403]
-            );
+            const result = await fetchWithHeaderVariants(urlCandidates, options, getAnthropicAuthHeaderVariants(apiKey), [404], [400, 401, 403]);
             return { ...result, model: probeModel };
         } catch (error) {
             lastError = error;
-            if (error.status === 404 && i < modelsToTry.length - 1) {
-                continue;
-            }
+            if (error.status === 404) continue;
             throw error;
         }
     }
-
     throw lastError || new Error('Anthropic 连接探测失败');
 }
 
-// --- API调用 ---
-async function testConnection() {
-    const config = PROVIDER_CONFIG[currentProvider];
+// --- 模态框测试连接 ---
+async function testModalConnection() {
+    const providerId = el.configProvider.value;
+    const config = PROVIDER_CONFIG[providerId];
     if (!config) return;
-    const effectiveModel = getEffectiveModel();
-    
-    if (!currentSettings.apiKey.trim()) {
+
+    const apiKey = el.apiKeyInput.value.trim();
+    const serverUrl = el.serverUrlInput.value.trim();
+
+    if (!apiKey) {
         showStatus('请输入 API 密钥后再进行测试', 'error');
         return;
     }
-    
+
     try {
-        elements.testConnection.textContent = '测试中...';
-        elements.testConnection.disabled = true;
-        
+        el.testConnection.textContent = '测试中...';
+        el.testConnection.disabled = true;
+
         let url = config.modelsEndpoint;
         let urlCandidates = [url];
-        let options = {
-            method: 'GET',
-            headers: {},
-            credentials: 'omit'
-        };
-        
+        let options = { method: 'GET', headers: {}, credentials: 'omit' };
+
         if (config.apiFormat === 'openai') {
-            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            options.headers['Authorization'] = `Bearer ${apiKey}`;
             if (config.testMode === 'chat') {
                 url = config.testEndpoint || config.modelsEndpoint;
                 options.method = 'POST';
                 options.headers['content-type'] = 'application/json';
                 options.body = JSON.stringify({
-                    model: effectiveModel || (config.fixedModels && config.fixedModels[0]) || '',
+                    model: (modalProviderSettings.selectedModel || modalProviderSettings.customModel) || (config.fixedModels && config.fixedModels[0]) || '',
                     max_tokens: 1,
                     messages: [{ role: 'user', content: 'Hi' }]
                 });
@@ -697,7 +948,7 @@ async function testConnection() {
             }
         } else if (config.apiFormat === 'anthropic') {
             options.method = 'POST';
-            options.headers['x-api-key'] = currentSettings.apiKey;
+            options.headers['x-api-key'] = apiKey;
             options.headers['anthropic-version'] = '2023-06-01';
             options.headers['content-type'] = 'application/json';
             options.body = JSON.stringify({
@@ -706,74 +957,45 @@ async function testConnection() {
                 messages: [{ role: 'user', content: 'Hi' }]
             });
         } else if (config.apiFormat === 'google') {
-            url = `${url}?key=${currentSettings.apiKey}`;
+            url = `${url}?key=${apiKey}`;
         } else if (config.apiFormat === 'zhipu') {
-            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            options.headers['Authorization'] = `Bearer ${apiKey}`;
         } else if (config.apiFormat === 'custom-openai') {
-            if (!currentSettings.serverUrl.trim()) {
-                throw new Error('请先填写 Base URL');
-            }
-            urlCandidates = buildEndpointCandidates(currentSettings.serverUrl, '/models');
-            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            if (!serverUrl) throw new Error('请先填写 Base URL');
+            urlCandidates = buildEndpointCandidates(serverUrl, '/models');
+            options.headers['Authorization'] = `Bearer ${apiKey}`;
         } else if (config.apiFormat === 'custom-anthropic') {
-            if (!currentSettings.serverUrl.trim()) {
-                throw new Error('请先填写 Base URL');
-            }
-            const { response } = await probeCustomAnthropicConnection(
-                currentSettings.serverUrl,
-                currentSettings.apiKey,
-                effectiveModel
-            );
+            if (!serverUrl) throw new Error('请先填写 Base URL');
+            const { response } = await probeCustomAnthropicConnection(serverUrl, apiKey, modalProviderSettings.selectedModel || modalProviderSettings.customModel);
             if (response.ok || response.status === 400) {
-                if (hasConfiguredModel(config)) {
-                    showStatus(`${config.name} 连接测试成功`, 'success');
-                } else {
-                    showStatus(`${config.name} 接口可达，但尚未选择模型，翻译时会失败`, 'info');
-                }
+                const hasModel = Boolean(modalProviderSettings.selectedModel || modalProviderSettings.customModel);
+                showStatus(`${config.name} ${hasModel ? '连接测试成功' : '接口可达，但尚未选择模型，翻译时会失败'}`, hasModel ? 'success' : 'info');
             } else if (response.status === 401 || response.status === 403) {
                 showStatus(`${config.name} 测试失败: 认证失败，请检查 API Key`, 'error');
             } else {
-                const msg = await extractErrorMessage(response, `HTTP ${response.status}`);
-                showStatus(`${config.name} 测试失败: ${msg}`, 'error');
+                showStatus(`${config.name} 测试失败: ${await extractErrorMessage(response, `HTTP ${response.status}`)}`, 'error');
             }
             return;
         }
-        
-        const requestTargets = (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic')
-            ? urlCandidates
-            : [url];
+
+        const requestTargets = (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') ? urlCandidates : [url];
         const { response } = config.apiFormat === 'custom-anthropic'
-            ? await fetchWithHeaderVariants(
-                requestTargets,
-                options,
-                getAnthropicAuthHeaderVariants(currentSettings.apiKey),
-                [404]
-            )
+            ? await fetchWithHeaderVariants(requestTargets, options, getAnthropicAuthHeaderVariants(apiKey), [404])
             : await fetchWithFallback(requestTargets, options, [404]);
-        
+
         if (response.ok) {
-            // 进一步验证返回的内容是否为 JSON 且不包含错误
             try {
                 const data = await response.json();
-                if (data.error) {
-                    throw new Error(data.error.message || 'API 返回了错误信息');
-                }
-            } catch (e) {
-                // 某些接口探测请求可能返回空体或非 JSON，连通即可判定成功
-            }
-            if (hasConfiguredModel(config)) {
-                showStatus(`${config.name} 连接测试成功！`, 'success');
-            } else {
-                showStatus(`${config.name} 接口可达，但尚未选择模型，翻译时会失败`, 'info');
-            }
+                if (data.error) throw new Error(data.error.message || 'API 返回了错误信息');
+            } catch (e) {}
+            const hasModel = Boolean(modalProviderSettings.selectedModel || modalProviderSettings.customModel);
+            showStatus(`${config.name} ${hasModel ? '连接测试成功！' : '接口可达，但尚未选择模型，翻译时会失败'}`, hasModel ? 'success' : 'info');
         } else {
             let errorMsg = 'API 密钥无效或请求失败';
             try {
                 const errorData = await response.json();
                 errorMsg = errorData.error?.message || errorData.message || errorMsg;
-            } catch (e) {
-                // 无法解析 JSON 错误，使用默认消息
-            }
+            } catch (e) {}
             showStatus(`${config.name} 测试失败: ${errorMsg}`, 'error');
         }
     } catch (error) {
@@ -783,50 +1005,42 @@ async function testConnection() {
             showStatus(`连接测试失败: ${error.message}`, 'error');
         }
     } finally {
-        elements.testConnection.textContent = '测试连接';
-        elements.testConnection.disabled = false;
+        el.testConnection.textContent = '测试连接';
+        el.testConnection.disabled = false;
     }
 }
 
-async function testServerConnection() {
-    const config = PROVIDER_CONFIG[currentProvider];
+async function testModalServerConnection() {
+    const providerId = el.configProvider.value;
+    const config = PROVIDER_CONFIG[providerId];
     if (!config) return;
-    const effectiveModel = getEffectiveModel();
-    
+
+    const apiKey = el.apiKeyInput.value.trim();
+    const serverUrl = el.serverUrlInput.value.trim();
+
     try {
-        elements.testServer.textContent = '测试中...';
-        elements.testServer.disabled = true;
-        
-        let url = normalizeBaseUrl(currentSettings.serverUrl);
+        el.testServer.textContent = '测试中...';
+        el.testServer.disabled = true;
+
+        let url = normalizeBaseUrl(serverUrl);
         let urlCandidates = [url];
-        let options = {
-            method: 'GET',
-            headers: {},
-            credentials: 'omit'
-        };
-        if (currentProvider === 'ollama') {
+        let options = { method: 'GET', headers: {}, credentials: 'omit' };
+
+        if (providerId === 'ollama') {
             urlCandidates = [`${url}/api/tags`];
         } else if (config.apiFormat === 'custom-openai') {
             urlCandidates = buildEndpointCandidates(url, '/models');
-            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            options.headers['Authorization'] = `Bearer ${apiKey}`;
         } else if (config.apiFormat === 'custom-anthropic') {
-            const { response } = await probeCustomAnthropicConnection(
-                url,
-                currentSettings.apiKey,
-                effectiveModel
-            );
+            const { response } = await probeCustomAnthropicConnection(url, apiKey, modalProviderSettings.selectedModel || modalProviderSettings.customModel);
             if (response.ok || response.status === 400) {
-                if (hasConfiguredModel(config)) {
-                    showStatus(`${config.name} 服务器连接成功`, 'success');
-                } else {
-                    showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
-                }
-                elements.fetchModels.disabled = false;
+                const hasModel = Boolean(modalProviderSettings.selectedModel || modalProviderSettings.customModel);
+                showStatus(`${config.name} ${hasModel ? '服务器连接成功' : '服务器可达，但尚未选择模型，翻译时会失败'}`, hasModel ? 'success' : 'info');
+                el.fetchModels.disabled = false;
             } else if (response.status === 401 || response.status === 403) {
                 showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
             } else {
-                const msg = await extractErrorMessage(response, `HTTP ${response.status}`);
-                showStatus(`${config.name} 服务器连接失败: ${msg}`, 'error');
+                showStatus(`${config.name} 服务器连接失败: ${await extractErrorMessage(response, `HTTP ${response.status}`)}`, 'error');
             }
             return;
         } else if (config.apiFormat === 'openai') {
@@ -834,7 +1048,7 @@ async function testServerConnection() {
         } else if (config.apiFormat === 'anthropic') {
             urlCandidates = [config.modelsEndpoint];
             options.method = 'POST';
-            options.headers['x-api-key'] = currentSettings.apiKey;
+            options.headers['x-api-key'] = apiKey;
             options.headers['anthropic-version'] = '2023-06-01';
             options.headers['content-type'] = 'application/json';
             options.body = JSON.stringify({
@@ -843,189 +1057,54 @@ async function testServerConnection() {
                 messages: [{ role: 'user', content: 'Hi' }]
             });
         } else if (config.apiFormat === 'google') {
-            urlCandidates = [`${config.modelsEndpoint}?key=${currentSettings.apiKey}`];
+            urlCandidates = [`${config.modelsEndpoint}?key=${apiKey}`];
         } else if (config.apiFormat === 'zhipu') {
             urlCandidates = [config.modelsEndpoint];
-            options.headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
+            options.headers['Authorization'] = `Bearer ${apiKey}`;
         }
-        
+
         let response;
         try {
             if (config.apiFormat === 'custom-anthropic') {
-                ({ response } = await fetchWithHeaderVariants(
-                    urlCandidates,
-                    options,
-                    getAnthropicAuthHeaderVariants(currentSettings.apiKey),
-                    [404],
-                    [400, 401, 403]
-                ));
+                ({ response } = await fetchWithHeaderVariants(urlCandidates, options, getAnthropicAuthHeaderVariants(apiKey), [404], [400, 401, 403]));
             } else {
                 ({ response } = await fetchWithFallback(urlCandidates, options, [404], [400, 401, 403]));
             }
         } catch (error) {
-            // 部分 OpenAI 兼容网关不提供 /models，改为探测 /chat/completions 判断可达性
             if (config.apiFormat === 'custom-openai') {
-                if (!effectiveModel) {
-                    throw new Error('当前服务未提供 /models 接口，请先选择模型或填写自定义模型后再测试');
-                }
+                const effectiveModel = modalProviderSettings.selectedModel || modalProviderSettings.customModel;
+                if (!effectiveModel) throw new Error('当前服务未提供 /models 接口，请先选择模型或填写自定义模型后再测试');
                 const probeCandidates = buildEndpointCandidates(url, '/chat/completions');
                 const probeOptions = {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${currentSettings.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: effectiveModel,
-                        messages: [{ role: 'user', content: 'ping' }],
-                        max_tokens: 1
-                    }),
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: effectiveModel, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
                     credentials: 'omit'
                 };
                 ({ response } = await fetchWithFallback(probeCandidates, probeOptions, [404], [400, 401, 403]));
-            } else if (config.apiFormat === 'custom-anthropic' && (error.status === 401 || error.status === 403)) {
-                response = { ok: false, status: error.status };
             } else {
                 throw error;
             }
         }
 
         if (response.ok) {
-            if (hasConfiguredModel(config)) {
-                showStatus(`${config.name} 服务器连接成功！`, 'success');
-            } else {
-                showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
-            }
-            elements.fetchModels.disabled = false;
+            const hasModel = Boolean(modalProviderSettings.selectedModel || modalProviderSettings.customModel);
+            showStatus(`${config.name} ${hasModel ? '服务器连接成功！' : '服务器可达，但尚未选择模型，翻译时会失败'}`, hasModel ? 'success' : 'info');
+            el.fetchModels.disabled = false;
         } else if (response.status === 400 && (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic')) {
-            if (hasConfiguredModel(config)) {
-                showStatus(`${config.name} 服务器可达（接口返回参数错误，请检查模型名或请求格式）`, 'info');
-            } else {
-                showStatus(`${config.name} 服务器可达，但尚未选择模型，翻译时会失败`, 'info');
-            }
-            elements.fetchModels.disabled = false;
+            const hasModel = Boolean(modalProviderSettings.selectedModel || modalProviderSettings.customModel);
+            showStatus(`${config.name} 服务器可达（${hasModel ? '接口返回参数错误' : '但尚未选择模型，翻译时会失败'}）`, hasModel ? 'info' : 'info');
+            el.fetchModels.disabled = false;
         } else if (response.status === 401 || response.status === 403) {
             showStatus(`${config.name} 服务器可达，但认证失败（请检查 API Key）`, 'error');
         } else {
             showStatus(`${config.name} 服务器连接失败，请检查地址`, 'error');
         }
     } catch (error) {
-        if (config.apiFormat === 'custom-anthropic' && error.status === 404) {
-            showStatus('服务器测试返回 404。请检查 Base URL 是否只填服务根地址（不含 /v1、/messages 等路径），并确认模型名称可用', 'error');
-        } else {
-            showStatus(`服务器连接失败: ${error.message}`, 'error');
-        }
+        showStatus(`服务器连接失败: ${error.message}`, 'error');
     } finally {
-        elements.testServer.textContent = '测试连接';
-        elements.testServer.disabled = false;
-    }
-}
-
-async function fetchModels() {
-    const config = PROVIDER_CONFIG[currentProvider];
-    if (!config) return;
-    
-    try {
-        elements.fetchModels.textContent = '获取中...';
-        elements.fetchModels.disabled = true;
-        elements.modelSelect.innerHTML = '<option>正在获取模型列表...</option>';
-        
-        let models = [];
-        
-        if (config.fixedModels) {
-            models = config.fixedModels;
-        } else if (currentProvider === 'ollama') {
-            const response = await fetch(`${currentSettings.serverUrl}/api/tags`);
-            if (!response.ok) throw new Error('Failed to fetch Ollama models');
-            const data = await response.json();
-            models = data.models.map(m => m.name);
-        } else if (config.modelsEndpoint) {
-            let url = config.modelsEndpoint;
-            let headers = {};
-            
-            if (config.apiFormat === 'openai' && config.needApiKey) {
-                headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
-                
-                // OpenRouter 推荐添加这些 Header 以识别应用
-                if (url.includes('openrouter.ai')) {
-                    headers['HTTP-Referer'] = 'https://github.com/Abelliuxl/ez-translate';
-                    headers['X-Title'] = 'EZ Translate Extension';
-                }
-            } else if (config.apiFormat === 'custom-openai') {
-                headers['Authorization'] = `Bearer ${currentSettings.apiKey}`;
-            } else if (config.apiFormat === 'google') {
-                url = `${url}?key=${currentSettings.apiKey}`;
-            } else if (config.apiFormat === 'anthropic') {
-                headers['x-api-key'] = currentSettings.apiKey;
-                headers['anthropic-version'] = '2023-06-01';
-            }
-            
-            let urlCandidates = [url];
-            // 对于本地部署的服务器
-            if (config.needServerUrl && currentProvider !== 'ollama') {
-                if (config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') {
-                    urlCandidates = buildEndpointCandidates(currentSettings.serverUrl, '/models');
-                } else {
-                    urlCandidates = [buildV1Endpoint(currentSettings.serverUrl, '/models')];
-                }
-            }
-            
-            const baseOptions = {
-                headers,
-                credentials: 'omit'
-            };
-            const { response } = config.apiFormat === 'custom-anthropic'
-                ? await fetchWithHeaderVariants(
-                    urlCandidates,
-                    baseOptions,
-                    getAnthropicAuthHeaderVariants(currentSettings.apiKey),
-                    [404]
-                )
-                : await fetchWithFallback(urlCandidates, baseOptions, [404]);
-            const data = await response.json();
-            
-            if (config.modelsFilter) {
-                const filtered = config.modelsFilter(data);
-                models = Array.isArray(filtered) ? filtered.map(m => m.id || m.name || m) : filtered;
-            } else if (data.data) {
-                models = data.data.map(m => m.id || m.name || m);
-            } else if (data.models) {
-                models = data.models.map(m => m.name || m.id || m);
-            }
-        }
-        
-        // 填充模型选择器
-        elements.modelSelect.innerHTML = '';
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            elements.modelSelect.appendChild(option);
-        });
-        
-        // 恢复之前选择的模型，或自动选中第一个
-        if (currentSettings.selectedModel && models.includes(currentSettings.selectedModel)) {
-            elements.modelSelect.value = currentSettings.selectedModel;
-        } else if (models.length > 0) {
-            elements.modelSelect.value = models[0];
-            currentSettings.selectedModel = models[0];
-            saveProviderSettings();
-        }
-        
-        elements.modelSelect.disabled = false;
-        showStatus(`成功获取 ${models.length} 个模型`, 'success');
-        
-    } catch (error) {
-        elements.modelSelect.innerHTML = '<option>获取模型失败</option>';
-        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') &&
-            (error.message.includes('404') || error.message.toLowerCase().includes('not found'))) {
-            showStatus('当前兼容供应商未提供模型列表接口，请勾选“使用自定义模型”并手动填写模型名', 'error');
-        } else {
-            showStatus(`获取模型失败: ${error.message}`, 'error');
-        }
-    } finally {
-        elements.fetchModels.textContent = '获取模型列表';
-        elements.fetchModels.disabled = false;
+        el.testServer.textContent = '测试连接';
+        el.testServer.disabled = false;
     }
 }
 
@@ -1035,14 +1114,13 @@ const languageKeys = [
 ];
 
 function populateLanguages() {
-    [elements.defaultTargetLanguageSelect, elements.secondTargetLanguageSelect].forEach(select => {
+    [el.defaultTargetLanguage, el.secondTargetLanguage].forEach(select => {
         select.innerHTML = '';
         languageKeys.forEach(key => {
-            const message = chrome.i18n.getMessage(key);
-            const option = document.createElement('option');
-            option.value = key;
-            option.textContent = message;
-            select.appendChild(option);
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = chrome.i18n.getMessage(key);
+            select.appendChild(opt);
         });
     });
 }
@@ -1050,254 +1128,133 @@ function populateLanguages() {
 function loadLanguageSettings() {
     getStorage().get(['targetLanguage', 'secondTargetLanguage'], (result) => {
         if (result.targetLanguage) {
-            elements.defaultTargetLanguageSelect.value = result.targetLanguage;
+            el.defaultTargetLanguage.value = result.targetLanguage;
         } else {
             const browserLang = chrome.i18n.getUILanguage();
-            const defaultLangKey = getDefaultLanguageKey(browserLang);
-            elements.defaultTargetLanguageSelect.value = defaultLangKey;
+            el.defaultTargetLanguage.value = getDefaultLanguageKey(browserLang);
         }
-        
         if (result.secondTargetLanguage) {
-            elements.secondTargetLanguageSelect.value = result.secondTargetLanguage;
+            el.secondTargetLanguage.value = result.secondTargetLanguage;
         } else {
-            const defaultLang = elements.defaultTargetLanguageSelect.value;
-            const secondLang = defaultLang === 'langSimplifiedChinese' ? 'langEnglish' : 'langSimplifiedChinese';
-            elements.secondTargetLanguageSelect.value = secondLang;
+            const def = el.defaultTargetLanguage.value;
+            el.secondTargetLanguage.value = def === 'langSimplifiedChinese' ? 'langEnglish' : 'langSimplifiedChinese';
         }
     });
 }
 
 function getDefaultLanguageKey(browserLang) {
-    const browserLangToMsgKey = {
-        'en': 'langEnglish',
-        'zh': 'langSimplifiedChinese',
-        'zh-CN': 'langSimplifiedChinese',
-        'zh-TW': 'langTraditionalChinese',
-        'fr': 'langFrench',
-        'es': 'langSpanish',
-        'ar': 'langArabic',
-        'ru': 'langRussian',
-        'pt': 'langPortuguese',
-        'de': 'langGerman',
-        'it': 'langItalian',
-        'nl': 'langDutch',
-        'da': 'langDanish',
-        'ja': 'langJapanese',
-        'ko': 'langKorean',
-        'sv': 'langSwedish',
-        'no': 'langNorwegianBokmal',
-        'pl': 'langPolish',
-        'tr': 'langTurkish',
-        'fi': 'langFinnish',
-        'hu': 'langHungarian',
-        'cs': 'langCzech',
-        'el': 'langGreek',
-        'hi': 'langHindi',
-        'id': 'langIndonesian',
-        'th': 'langThai',
-        'vi': 'langVietnamese',
-        'ro': 'langRomanian',
-        'sk': 'langSlovak'
+    const map = {
+        'en': 'langEnglish', 'zh': 'langSimplifiedChinese', 'zh-CN': 'langSimplifiedChinese',
+        'zh-TW': 'langTraditionalChinese', 'fr': 'langFrench', 'es': 'langSpanish',
+        'ar': 'langArabic', 'ru': 'langRussian', 'pt': 'langPortuguese', 'de': 'langGerman',
+        'it': 'langItalian', 'nl': 'langDutch', 'da': 'langDanish', 'ja': 'langJapanese',
+        'ko': 'langKorean', 'sv': 'langSwedish', 'no': 'langNorwegianBokmal', 'pl': 'langPolish',
+        'tr': 'langTurkish', 'fi': 'langFinnish', 'hu': 'langHungarian', 'cs': 'langCzech',
+        'el': 'langGreek', 'hi': 'langHindi', 'id': 'langIndonesian', 'th': 'langThai',
+        'vi': 'langVietnamese', 'ro': 'langRomanian', 'sk': 'langSlovak'
     };
-    
-    return browserLangToMsgKey[browserLang] || browserLangToMsgKey[browserLang.split('-')[0]] || 'langEnglish';
+    return map[browserLang] || map[browserLang?.split('-')[0]] || 'langEnglish';
 }
 
 // --- I18n ---
 function setupI18n() {
     document.querySelectorAll('[data-i18n]').forEach(elem => {
-        const key = elem.getAttribute('data-i18n');
-        elem.textContent = chrome.i18n.getMessage(key);
-    });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(elem => {
-        const key = elem.getAttribute('data-i18n-placeholder');
-        elem.placeholder = chrome.i18n.getMessage(key);
+        elem.textContent = chrome.i18n.getMessage(elem.getAttribute('data-i18n'));
     });
     document.title = chrome.i18n.getMessage('settingsTitle');
 }
 
-// --- 事件监听器 ---
+// --- 事件绑定 ---
 function setupEventListeners() {
-    // 提供商选择
-    elements.providerSelect.addEventListener('change', async (e) => {
+    // 新建/关闭模态框
+    el.btnNewConfig.addEventListener('click', openNewConfigModal);
+    el.modalClose.addEventListener('click', closeModal);
+    el.modalCancel.addEventListener('click', closeModal);
+    el.modalOverlay.addEventListener('click', closeModal);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && el.modal.style.display === 'flex') closeModal();
+    });
+
+    // 模态框内事件
+    el.configProvider.addEventListener('change', (e) => {
         const providerId = e.target.value;
         if (providerId) {
-            await setupProviderConfig(providerId);
-            saveProviderSettings();
+            setupModalProviderConfig(providerId);
+        }
+    });
+
+    el.apiKeyInput.addEventListener('input', () => {
+        modalProviderSettings.apiKey = el.apiKeyInput.value;
+        el.fetchModels.disabled = !hasModalValidCredentials();
+    });
+
+    el.serverUrlInput.addEventListener('input', () => {
+        modalProviderSettings.serverUrl = el.serverUrlInput.value;
+        el.fetchModels.disabled = !hasModalValidCredentials();
+    });
+
+    el.toggleApiKey.addEventListener('click', () => {
+        const type = el.apiKeyInput.type === 'password' ? 'text' : 'password';
+        el.apiKeyInput.type = type;
+        el.toggleApiKey.textContent = type === 'password' ? '👁️' : '🔒';
+    });
+
+    el.testConnection.addEventListener('click', testModalConnection);
+    el.testServer.addEventListener('click', testModalServerConnection);
+    el.fetchModels.addEventListener('click', fetchModalModels);
+
+    el.modelSelect.addEventListener('change', (e) => {
+        modalProviderSettings.selectedModel = e.target.value;
+    });
+
+    el.customModelCheckbox.addEventListener('change', (e) => {
+        modalProviderSettings.useCustomModel = e.target.checked;
+        if (e.target.checked) {
+            modalProviderSettings.selectedModel = el.customModelInput.value || modalProviderSettings.selectedModel;
         } else {
-            elements.providerConfig.style.display = 'none';
+            modalProviderSettings.customModel = '';
+            el.customModelInput.value = '';
+        }
+        updateModalCustomModelUI();
+    });
+
+    el.customModelInput.addEventListener('input', (e) => {
+        modalProviderSettings.customModel = e.target.value;
+        if (modalProviderSettings.useCustomModel) {
+            modalProviderSettings.selectedModel = e.target.value;
         }
     });
-    
-    // API密钥输入
-    elements.apiKeyInput.addEventListener('input', (e) => {
-        currentSettings.apiKey = e.target.value;
-        elements.fetchModels.disabled = !hasValidCredentials();
-        saveProviderSettings();
-    });
-    
-    // 服务器地址输入
-    elements.serverUrlInput.addEventListener('input', (e) => {
-        currentSettings.serverUrl = e.target.value;
-        elements.fetchModels.disabled = !hasValidCredentials();
-        saveProviderSettings();
-    });
-    
-    // 测试连接
-    elements.testConnection.addEventListener('click', testConnection);
-    elements.testServer.addEventListener('click', testServerConnection);
 
-    // 切换API密钥显示/隐藏
-    elements.toggleApiKey.addEventListener('click', () => {
-        const type = elements.apiKeyInput.type === 'password' ? 'text' : 'password';
-        elements.apiKeyInput.type = type;
-        elements.toggleApiKey.textContent = type === 'password' ? '👁️' : '🔒';
+    // 推理强度
+    el.customReasoningCheckbox.addEventListener('change', (e) => {
+        el.customReasoningSection.style.display = e.target.checked ? 'block' : 'none';
+        el.reasoningSelect.disabled = e.target.checked;
     });
-    
-    // 获取模型
-    elements.fetchModels.addEventListener('click', fetchModels);
-    
-    // 模型选择
-    elements.modelSelect.addEventListener('change', (e) => {
-        currentSettings.selectedModel = e.target.value;
-        saveProviderSettings();
-        showStatus(`已选择模型: ${e.target.value}`, 'success');
-    });
-    
+
+    // 保存配置
+    el.modalSave.addEventListener('click', saveConfigFromModal);
+
     // 语言设置
-    elements.defaultTargetLanguageSelect.addEventListener('change', (e) => {
+    el.defaultTargetLanguage.addEventListener('change', (e) => {
         getStorage().set({ targetLanguage: e.target.value });
-        showStatus(`默认目标语言已设置`, 'success');
+        showStatus('默认目标语言已设置', 'success');
     });
-    
-    elements.secondTargetLanguageSelect.addEventListener('change', (e) => {
+
+    el.secondTargetLanguage.addEventListener('change', (e) => {
         getStorage().set({ secondTargetLanguage: e.target.value });
-        showStatus(`第二目标语言已设置`, 'success');
+        showStatus('第二目标语言已设置', 'success');
     });
-    
-    // 自定义模型勾选框
-    elements.customModelCheckbox.addEventListener('change', (e) => {
-        currentSettings.useCustomModel = e.target.checked;
-        updateCustomModelUI();
-        saveProviderSettings();
-    });
-    
-    // 自定义模型输入
-    elements.customModelInput.addEventListener('input', (e) => {
-        currentSettings.customModel = e.target.value;
-        if (currentSettings.useCustomModel) {
-            currentSettings.selectedModel = e.target.value;
-        }
-        saveProviderSettings();
-    });
-    
-    // 思考模式开关
-    elements.thinkingModeCheckbox.addEventListener('change', (e) => {
-        currentSettings.thinkingEnabled = e.target.checked;
-        saveProviderSettings();
-        showStatus(e.target.checked ? '已启用思考模式' : '已关闭思考模式', 'success');
-    });
-    
-    // 保存按钮
-    elements.saveSettingsBtn.addEventListener('click', () => {
-        saveAllSettings();
-    });
-
-    // 同步开关
-    elements.enableSyncCheckbox.addEventListener('change', async (e) => {
-        const newSyncEnabled = e.target.checked;
-        const storage = getStorage();
-
-        if (newSyncEnabled !== syncEnabled) {
-            // 同步开关状态发生变化
-            const oldStorage = syncEnabled ? chrome.storage.sync : chrome.storage.local;
-            const newStorage = newSyncEnabled ? chrome.storage.sync : chrome.storage.local;
-
-            // 迁移数据：从旧存储读取，写入新存储
-            showStatus('正在迁移数据...', 'info');
-
-            try {
-                // 获取所有旧存储的数据
-                const oldData = await oldStorage.get(null);
-
-                // 写入新存储
-                await new Promise((resolve, reject) => {
-                    newStorage.set(oldData, () => {
-                        if (chrome.runtime.lastError) {
-                            reject(chrome.runtime.lastError);
-                        } else {
-                            resolve();
-                        }
-                    });
-                });
-
-                // 保存同步开关状态到 local（不同步这个开关本身）
-                chrome.storage.local.set({ syncEnabled: newSyncEnabled });
-
-                syncEnabled = newSyncEnabled;
-
-                const message = newSyncEnabled
-                    ? '已启用浏览器同步，配置将同步到所有登录了相同浏览器账户的设备'
-                    : '已关闭浏览器同步，配置将仅保存在本地';
-                showStatus(message, 'success', 5000);
-            } catch (error) {
-                // 迁移失败，恢复开关状态
-                elements.enableSyncCheckbox.checked = syncEnabled;
-                showStatus(`数据迁移失败: ${error.message}`, 'error');
-            }
-        }
-    });
-}
-
-// --- 保存所有设置 ---
-function saveAllSettings() {
-    try {
-        // 保存提供商设置
-        saveProviderSettings();
-        
-        // 保存语言设置
-        const targetLanguage = elements.defaultTargetLanguageSelect.value;
-        const secondTargetLanguage = elements.secondTargetLanguageSelect.value;
-        
-        getStorage().set({
-            targetLanguage,
-            secondTargetLanguage
-        });
-        
-        showStatus('所有设置已保存成功！', 'success', 3000);
-        
-        // 添加保存成功的视觉反馈
-        const originalText = elements.saveSettingsBtn.textContent;
-        elements.saveSettingsBtn.textContent = '✓ 已保存';
-        elements.saveSettingsBtn.style.backgroundColor = '#218838';
-        
-        setTimeout(() => {
-            elements.saveSettingsBtn.textContent = originalText;
-            elements.saveSettingsBtn.style.backgroundColor = '';
-        }, 2000);
-        
-    } catch (error) {
-        showStatus(`保存设置失败: ${error.message}`, 'error');
-    }
 }
 
 // --- 初始化 ---
 async function initialize() {
     setupI18n();
     populateLanguages();
-
-    // 加载同步开关设置（始终从 local 读取，因为开关本身不同步）
-    chrome.storage.local.get(['syncEnabled'], (result) => {
-        syncEnabled = result.syncEnabled || false;
-        elements.enableSyncCheckbox.checked = syncEnabled;
-
-        // 加载其他设置
-        loadLanguageSettings();
-    });
-
-    await loadProviderSettings();
+    await loadConfigurations();
+    await migrateFromOldFormat();
+    renderConfigList();
+    loadLanguageSettings();
     setupEventListeners();
 }
 
-// 启动应用
 document.addEventListener('DOMContentLoaded', initialize);

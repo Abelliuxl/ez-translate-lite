@@ -546,7 +546,7 @@
     },
     "translationPrompt": {
         "message": "请将以下文本翻译成 $1$。如果原文已经是 $1$，请翻译成 $2$。请直接返回译文，不要包含任何解释、说明或多余的文字。请仅返回一种语言的译文。\n\n原文：\n$3$",
-        "description": "翻译 API 的提示。",
+        "description": "翻译 API 的提示（旧格式，保留兼容）。",
         "placeholders": {
             "1": { "content": "$1" },
             "2": { "content": "$2" },
@@ -554,12 +554,12 @@
         }
     },
     "systemPrompt": {
-        "message": "请将以下文本翻译成$targetLanguage$。请直接返回译文，不要包含任何解释、说明或多余的文字。",
+        "message": "你是一个专业的自动翻译引擎。请将用户输入的文本翻译为 $targetLanguage$。\n\n输出要求：\n- 只返回译文，不包含任何解释、标注或多余文字\n- 保持原文的语气和标点风格\n- 代码、URL、数字、专有名词保留不译\n- 单词或短语直接翻译，不展开",
         "description": "翻译 API 的系统提示。",
         "placeholders": {
             "targetLanguage": {
                 "content": "$1",
-                "example": "中文"
+                "example": "Simplified Chinese"
             }
         }
     },
@@ -580,7 +580,7 @@
         "description": "第二目标语言选择的标签。"
     },
     "secondTargetLanguageHint": {
-        "message": "用于快速切换的额外目标语言。",
+        "message": "每次翻译时同时生成第二语言的译文，可在翻译结果中切换查看。",
         "description": "解释第二目标语言设置的提示。"
     },
     "contextMenuTranslate": {
