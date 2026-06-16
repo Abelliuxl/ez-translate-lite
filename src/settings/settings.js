@@ -1316,6 +1316,7 @@ let askPromptTemplate = '';
 
 const elTab = {
     config: document.querySelector('.settings-tab[data-tab="config"]'),
+    language: document.querySelector('.settings-tab[data-tab="language"]'),
     creation: document.querySelector('.settings-tab[data-tab="creation"]'),
     ask: document.querySelector('.settings-tab[data-tab="ask"]'),
     sync: document.querySelector('.settings-tab[data-tab="sync"]'),

@@ -7,13 +7,11 @@
 </head>
 <body>
     <h1 data-i18n="settingsTitle"></h1>
-    <div class="settings-top-actions">
-        <button id="btn-save-all-settings" class="btn-primary" type="button">保存并刷新配置状态</button>
-    </div>
 
     <!-- ========== Tab 导航 ========== -->
     <div class="settings-tabs">
         <div class="settings-tab active" data-tab="config">LLM 配置</div>
+        <div class="settings-tab" data-tab="language">目标语言</div>
         <div class="settings-tab" data-tab="creation">创作</div>
         <div class="settings-tab" data-tab="ask">Ask</div>
         <div class="settings-tab" data-tab="sync">同步</div>
@@ -34,6 +32,21 @@
             </div>
         </section>
 
+        <section class="github-section">
+            <div class="github-content">
+                <h3 data-i18n="githubSectionTitle"></h3>
+                <p data-i18n="githubDescription"></p>
+                <div class="github-actions">
+                    <a href="https://github.com/Abelliuxl/ez-translate-lite" target="_blank" class="github-link" data-i18n="visitGitHub"></a>
+                    <a href="https://github.com/Abelliuxl/ez-translate-lite/issues" target="_blank" class="github-link issue-link" data-i18n="reportIssue"></a>
+                </div>
+                <p class="github-encouragement" data-i18n="githubEncouragement"></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- ========== Tab: 目标语言 ========== -->
+    <div id="tab-language" class="tab-panel" style="display:none;">
         <section class="target-language-settings">
             <h2 data-i18n="targetLanguageSettingsTitle"></h2>
 
@@ -47,18 +60,6 @@
                 <label for="second-target-language" data-i18n="secondTargetLanguageLabel"></label>
                 <p class="hint" data-i18n="secondTargetLanguageHint"></p>
                 <select id="second-target-language"></select>
-            </div>
-        </section>
-
-        <section class="github-section">
-            <div class="github-content">
-                <h3 data-i18n="githubSectionTitle"></h3>
-                <p data-i18n="githubDescription"></p>
-                <div class="github-actions">
-                    <a href="https://github.com/Abelliuxl/ez-translate-lite" target="_blank" class="github-link" data-i18n="visitGitHub"></a>
-                    <a href="https://github.com/Abelliuxl/ez-translate-lite/issues" target="_blank" class="github-link issue-link" data-i18n="reportIssue"></a>
-                </div>
-                <p class="github-encouragement" data-i18n="githubEncouragement"></p>
             </div>
         </section>
     </div>
@@ -162,6 +163,10 @@
 
             <p id="webdav-sync-status" class="sync-status">未开启同步</p>
         </section>
+    </div>
+
+    <div class="settings-save-actions">
+        <button id="btn-save-all-settings" class="btn-primary" type="button">保存并刷新配置状态</button>
     </div>
 
     <!-- ========== 配置编辑模态框（全局通用） ========== -->

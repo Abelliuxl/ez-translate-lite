@@ -1,10 +1,18 @@
 /* --- 全局与布局 --- */
-body { font-family: sans-serif; padding: 20px; max-width: 640px; margin: auto; background-color: #f8f9fa; }
+body { font-family: sans-serif; padding: 20px 20px 88px; max-width: 640px; margin: auto; background-color: #f8f9fa; }
 h1 { text-align: center; color: #343a40; }
-.settings-top-actions {
+.settings-save-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
     display: flex;
-    justify-content: flex-end;
-    margin: -6px 0 18px;
+    justify-content: center;
+    padding: 14px 20px;
+    background: rgba(248, 249, 250, 0.94);
+    border-top: 1px solid #dee2e6;
+    backdrop-filter: blur(8px);
 }
 .form-group { margin-bottom: 20px; }
 label { display: block; margin-bottom: 8px; font-weight: 500; color: #495057; }
@@ -419,9 +427,7 @@ label a:hover { text-decoration: underline; }
 
 /* --- 目标语言设置 --- */
 .target-language-settings {
-    margin-top: 30px;
-    padding-top: 24px;
-    border-top: 2px solid #dee2e6;
+    margin-bottom: 30px;
 }
 .target-language-settings h2 {
     color: #343a40;
@@ -611,7 +617,7 @@ label a:hover { text-decoration: underline; }
     .modal-body { padding: 16px; }
     .github-actions { flex-direction: column; align-items: center; }
     .github-link { width: 100%; max-width: 200px; justify-content: center; }
-    .settings-top-actions { justify-content: stretch; }
-    .settings-top-actions .btn-primary { width: 100%; }
+    .settings-save-actions { justify-content: stretch; padding: 12px 16px; }
+    .settings-save-actions .btn-primary { width: 100%; }
     .sync-actions { flex-direction: column; align-items: stretch; }
 }
