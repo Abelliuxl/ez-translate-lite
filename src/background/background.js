@@ -123,7 +123,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sender,
             sendResponse
         });
-        return true; // 异步响应
+        return true;
+    }
+
+    if (request.type === 'create') {
+        handleCreation({
+            text: request.text,
+            stream: Boolean(request.stream),
+            requestId: request.requestId || '',
+            sender,
+            sendResponse
+        });
+        return true;
+    }
+
+    if (request.type === 'ask') {
+        handleAsk({
+            messages: request.messages || [],
+            stream: Boolean(request.stream),
+            requestId: request.requestId || '',
+            sender,
+            sendResponse
+        });
+        return true;
     }
 });
 
@@ -341,6 +363,181 @@ async function handleTranslation({ text, targetLanguage, secondTargetLanguage, s
     }
 }
 
+// --- 创作处理 ---
+async function handleCreation({ text, stream, requestId, sender, sendResponse }) {
+    try {
+        const storage = getStorage();
+        const settingsResult = await storage.get('creationPrompt');
+        const customPrompt = (settingsResult.creationPrompt || '').trim() || '请帮我润色以下文本：';
+
+        const resolved = await resolveActiveProviderSettings();
+        const { currentProvider, apiKey, serverUrl, selectedModel } = resolved;
+        if (!currentProvider || !selectedModel) {
+            sendResponse({ error: '请先在设置页面配置LLM提供商和模型' });
+            return;
+        }
+
+        const config = PROVIDER_CONFIG[currentProvider];
+        if (!config) {
+            sendResponse({ error: `未知的提供商: ${currentProvider}` });
+            return;
+        }
+
+        if (config.apiFormat !== 'ollama' && !apiKey) {
+            sendResponse({ error: `${config.name} API密钥未配置` });
+            return;
+        }
+        if (config.apiFormat === 'ollama' && !serverUrl) {
+            sendResponse({ error: `${config.name} 服务器地址未配置` });
+            return;
+        }
+        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') && !serverUrl) {
+            sendResponse({ error: `${config.name} Base URL 未配置` });
+            return;
+        }
+
+        const canStream = Boolean(stream && requestId && sender?.tab?.id);
+        const sendProgress = canStream
+            ? (payload) => sendStreamUpdate(sender.tab.id, requestId, 'creation_stream', payload)
+            : null;
+
+        if (sendProgress) {
+            await sendProgress({ stage: 'start', model: selectedModel });
+        }
+
+        const baseParams = {
+            provider: currentProvider,
+            config,
+            apiKey,
+            serverUrl,
+            model: selectedModel,
+            text,
+            onProgress: sendProgress
+        };
+
+        const result = await callTranslationAPI({
+            ...baseParams,
+            targetLanguage: '',
+            secondTargetLanguage: '',
+            thinkingEnabled: false,
+            reasoningEffort: 'low',
+            customSystemPrompt: customPrompt
+        });
+
+        if (sendProgress) {
+            await sendProgress({
+                stage: 'done',
+                model: result.model || selectedModel,
+                translation: result.translation
+            });
+        }
+
+        sendResponse({ result: result.translation, model: result.model || selectedModel });
+    } catch (error) {
+        if (stream && requestId && sender?.tab?.id) {
+            await sendStreamUpdate(sender.tab.id, requestId, 'creation_stream', {
+                stage: 'error',
+                error: error.message || String(error || '')
+            });
+        }
+        sendResponse({ error: `创作失败: ${error.message}` });
+    }
+}
+
+// --- Ask 对话处理 ---
+async function handleAsk({ messages, stream, requestId, sender, sendResponse }) {
+    try {
+        const storage = getStorage();
+        const settingsResult = await storage.get(['askConfigId', 'configurations']);
+        const configId = settingsResult.askConfigId;
+        if (!configId) {
+            sendResponse({ error: 'Ask 功能未配置 LLM' });
+            return;
+        }
+
+        const configs = settingsResult.configurations || [];
+        const activeConfig = configs.find(c => c.id === configId);
+        if (!activeConfig) {
+            sendResponse({ error: 'Ask 功能的 LLM 配置不存在' });
+            return;
+        }
+
+        const resolved = resolveConfigSettings(activeConfig);
+        const { currentProvider, apiKey, serverUrl, selectedModel } = resolved;
+        if (!currentProvider || !selectedModel) {
+            sendResponse({ error: 'Ask 功能的 LLM 配置不完整' });
+            return;
+        }
+
+        const config = PROVIDER_CONFIG[currentProvider];
+        if (!config) {
+            sendResponse({ error: `未知的提供商: ${currentProvider}` });
+            return;
+        }
+
+        if (config.apiFormat !== 'ollama' && !apiKey) {
+            sendResponse({ error: `${config.name} API密钥未配置` });
+            return;
+        }
+        if (config.apiFormat === 'ollama' && !serverUrl) {
+            sendResponse({ error: `${config.name} 服务器地址未配置` });
+            return;
+        }
+        if ((config.apiFormat === 'custom-openai' || config.apiFormat === 'custom-anthropic') && !serverUrl) {
+            sendResponse({ error: `${config.name} Base URL 未配置` });
+            return;
+        }
+
+        const canStream = Boolean(stream && requestId && sender?.tab?.id);
+        const sendProgress = canStream
+            ? (payload) => sendStreamUpdate(sender.tab.id, requestId, 'ask_stream', payload)
+            : null;
+
+        if (sendProgress) {
+            await sendProgress({ stage: 'start', model: selectedModel });
+        }
+
+        const result = await callChatAPI({
+            provider: currentProvider,
+            config,
+            apiKey,
+            serverUrl,
+            model: selectedModel,
+            messages,
+            onProgress: sendProgress
+        });
+
+        if (sendProgress) {
+            await sendProgress({
+                stage: 'done',
+                model: result.model || selectedModel,
+                text: result.content
+            });
+        }
+
+        sendResponse({ reply: result.content, model: result.model || selectedModel });
+    } catch (error) {
+        if (stream && requestId && sender?.tab?.id) {
+            await sendStreamUpdate(sender.tab.id, requestId, 'ask_stream', {
+                stage: 'error',
+                error: error.message || String(error || '')
+            });
+        }
+        sendResponse({ error: `对话失败: ${error.message}` });
+    }
+}
+
+function resolveConfigSettings(config) {
+    if (!config) return { currentProvider: null, selectedModel: '', apiKey: '', serverUrl: '' };
+    const model = config.useCustomModel ? (config.customModel || config.model) : config.model;
+    return {
+        currentProvider: config.provider,
+        apiKey: config.apiKey || '',
+        serverUrl: config.serverUrl || '',
+        selectedModel: model || ''
+    };
+}
+
 // --- 语言检测与目标语言确定 ---
 async function determineTargetLanguage(text, targetLanguage, secondTargetLanguage) {
     return new Promise((resolve) => {
@@ -477,6 +674,24 @@ async function sendTranslationStreamUpdate(tabId, requestId, payload = {}) {
                 ...payload
             }, () => {
                 // 接收端可能已经销毁，忽略该错误即可
+                void chrome.runtime.lastError;
+                resolve();
+            });
+        } catch (error) {
+            resolve();
+        }
+    });
+}
+
+async function sendStreamUpdate(tabId, requestId, streamType, payload = {}) {
+    if (!tabId || !requestId || !streamType) return;
+    return new Promise((resolve) => {
+        try {
+            chrome.tabs.sendMessage(tabId, {
+                type: streamType,
+                requestId,
+                ...payload
+            }, () => {
                 void chrome.runtime.lastError;
                 resolve();
             });
@@ -714,8 +929,8 @@ async function readSseDataLines(response, onDataLine) {
 /**
  * 调用文本翻译API
  */
-async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, text, targetLanguage, secondTargetLanguage, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null }) {
-    const systemPrompt = chrome.i18n.getMessage('systemPrompt', [
+async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, text, targetLanguage, secondTargetLanguage, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null, customSystemPrompt = null }) {
+    const systemPrompt = customSystemPrompt || chrome.i18n.getMessage('systemPrompt', [
         String(targetLanguage)
     ]);
     const userPrompt = String(text);
@@ -751,9 +966,50 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
     }
 }
 
+/**
+ * 调用对话 API（用于 Ask 功能）
+ */
+async function callChatAPI({ provider, config, apiKey, serverUrl, model, messages, onProgress = null }) {
+    const userMessages = Array.isArray(messages) ? messages : [];
+
+    if (userMessages.length === 0) {
+        throw new Error('对话消息为空');
+    }
+
+    if (config.apiFormat === 'openai') {
+        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, '', '', false, 'low', onProgress, userMessages);
+    } else if (config.apiFormat === 'anthropic') {
+        return await callAnthropicAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
+    } else if (config.apiFormat === 'google') {
+        return await callGoogleAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
+    } else if (config.apiFormat === 'zhipu') {
+        return await callZhipuAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
+    } else if (config.apiFormat === 'azure') {
+        const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl).replace('{model}', model);
+        return await callOpenAICompatibleAPI(endpoint, apiKey, model, '', '', false, 'low', onProgress, userMessages);
+    } else if (config.apiFormat === 'ollama') {
+        const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl);
+        return await callOllamaAPI(endpoint, model, '', '', onProgress, userMessages);
+    } else if (config.apiFormat === 'custom-openai') {
+        const endpoints = buildEndpointCandidates(serverUrl, '/chat/completions');
+        return await callOpenAICompatibleAPI(endpoints, apiKey, model, '', '', false, 'low', onProgress, userMessages);
+    } else if (config.apiFormat === 'custom-anthropic') {
+        const endpoints = buildEndpointCandidates(serverUrl, '/messages');
+        const modelCandidates = [
+            model,
+            'LongCat-Flash-Chat',
+            'claude-3-5-haiku-latest',
+            'claude-3-5-sonnet-latest'
+        ].filter(Boolean);
+        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, '', '', onProgress, userMessages);
+    } else {
+        throw new Error(`未支持的API格式: ${config.apiFormat}`);
+    }
+}
+
 
 // --- OpenAI兼容API ---
-async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, text, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null) {
+async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, text, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null, messages = null) {
     const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
     const streamRequested = typeof onProgress === 'function';
     let lastError = null;
@@ -780,11 +1036,11 @@ async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, te
             try {
                 const requestBody = {
                     model,
-                    messages: [
+                    messages: messages || [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: text }
                     ],
-                    max_tokens: 2048,
+                    max_tokens: 4096,
                     temperature: 0.3,
                     stream: streamMode
                 };
@@ -926,7 +1182,7 @@ async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, te
 
 
 // --- Anthropic API ---
-async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null) {
+async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null, messages = null) {
     const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
     const modelCandidates = Array.isArray(model) ? [...new Set(model)] : [model];
     const streamRequested = typeof onProgress === 'function';
@@ -955,14 +1211,21 @@ async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onP
                     const streamMode = attemptModes[modeIndex];
 
                     try {
+                        const chatSystem = messages
+                            ? (messages.find(m => m.role === 'system')?.content || '')
+                            : systemPrompt;
+                        const chatMessages = messages
+                            ? messages.filter(m => m.role !== 'system')
+                            : [{ role: 'user', content: text }];
+
                         const response = await fetch(currentEndpoint, {
                             method: 'POST',
                             headers: authHeaderVariants[j],
                             body: JSON.stringify({
                                 model: currentModel,
-                                system: systemPrompt,
-                                max_tokens: 2048,
-                                messages: [{ role: 'user', content: text }],
+                                system: chatSystem,
+                                max_tokens: 4096,
+                                messages: chatMessages,
                                 temperature: 0.3,
                                 stream: streamMode
                             }),
@@ -1122,15 +1385,31 @@ async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onP
 
 
 // --- Google API ---
-async function callGoogleAPI(endpoint, apiKey, model, systemPrompt, text) {
+async function callGoogleAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null, messages = null) {
     const url = endpoint.replace('{model}', model) + `?key=${apiKey}`;
+
+    let systemInstruction = { parts: [{ text: systemPrompt }] };
+    let contents = [{ parts: [{ text: text }] }];
+
+    if (messages) {
+        const sysMsg = messages.find(m => m.role === 'system');
+        if (sysMsg) {
+            systemInstruction = { parts: [{ text: sysMsg.content }] };
+        }
+        contents = messages
+            .filter(m => m.role !== 'system')
+            .map(m => ({
+                parts: [{ text: m.content }],
+                role: m.role === 'assistant' ? 'model' : 'user'
+            }));
+    }
 
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ parts: [{ text: text }] }],
+            systemInstruction,
+            contents,
         }),
     });
 
@@ -1153,7 +1432,7 @@ async function callGoogleAPI(endpoint, apiKey, model, systemPrompt, text) {
 
 
 // --- 智谱API ---
-async function callZhipuAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null) {
+async function callZhipuAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null, messages = null) {
     const streamRequested = typeof onProgress === 'function';
     const attemptModes = streamRequested ? [true, false] : [false];
 
@@ -1172,11 +1451,11 @@ async function callZhipuAPI(endpoint, apiKey, model, systemPrompt, text, onProgr
                 },
                 body: JSON.stringify({
                     model,
-                    messages: [
+                    messages: messages || [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: text }
                     ],
-                    max_tokens: 2048,
+                    max_tokens: 4096,
                     temperature: 0.3,
                     stream: streamMode
                 }),
@@ -1294,14 +1573,25 @@ async function callZhipuAPI(endpoint, apiKey, model, systemPrompt, text, onProgr
 
 
 // --- Ollama API ---
-async function callOllamaAPI(endpoint, model, systemPrompt, text, onProgress = null) {
+async function callOllamaAPI(endpoint, model, systemPrompt, text, onProgress = null, messages = null) {
     const streamMode = typeof onProgress === 'function';
+
+    let prompt;
+    if (messages) {
+        prompt = messages.map(m => {
+            const role = m.role === 'system' ? 'System' : m.role === 'assistant' ? 'Assistant' : 'User';
+            return `${role}: ${m.content}`;
+        }).join('\n\n') + '\n\nAssistant:';
+    } else {
+        prompt = `${systemPrompt}\n\n${text}`;
+    }
+
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             model,
-            prompt: `${systemPrompt}\n\n${text}`,
+            prompt,
             stream: streamMode,
         }),
     });

@@ -152,11 +152,36 @@ let configurations = [];
 let activeConfigId = null;
 let editingConfigId = null; // null = 新建模式, string = 编辑模式
 let modalProviderSettings = {}; // 模态框内临时设置
+let webdavSyncSettings = {
+    enabled: false,
+    rootUrl: '',
+    username: '',
+    password: ''
+};
+let webdavUploadTimer = null;
+
+const SYNC_DIR_NAME = 'ez-translate';
+const SYNC_FILE_NAME = 'config.json';
+const SYNC_DATA_KEYS = [
+    'configurations',
+    'activeConfigId',
+    'targetLanguage',
+    'secondTargetLanguage',
+    'isSelectionTranslationEnabled',
+    'creationEnabled',
+    'creationPrompt',
+    'askEnabled',
+    'askConfigId',
+    'askFontSize',
+    'askPromptTemplate'
+];
 
 // --- DOM 元素 ---
 const $ = (id) => document.getElementById(id);
 
 const el = {
+    btnSaveAllSettings: $('btn-save-all-settings'),
+
     // 配置列表
     configList: $('config-list'),
     configEmpty: $('config-empty'),
@@ -260,11 +285,19 @@ async function loadConfigurations() {
 }
 
 async function saveConfigurations() {
-    const storage = getStorage();
-    await storage.set({
+    await saveSyncedValues({
         configurations,
         activeConfigId
     });
+}
+
+async function saveSyncedValues(values) {
+    const storage = getStorage();
+    await storage.set({
+        ...values,
+        syncLocalUpdatedAt: Date.now()
+    });
+    scheduleWebdavUpload();
 }
 
 // --- 自动迁移旧格式 ---
@@ -557,6 +590,7 @@ async function saveConfigFromModal() {
 
     await saveConfigurations();
     renderConfigList();
+    renderAskConfigSelect();
     closeModal();
 
     if (editingConfigId) {
@@ -1166,6 +1200,8 @@ function setupI18n() {
 
 // --- 事件绑定 ---
 function setupEventListeners() {
+    el.btnSaveAllSettings.addEventListener('click', saveAllSettingsAndRefresh);
+
     // 新建/关闭模态框
     el.btnNewConfig.addEventListener('click', openNewConfigModal);
     el.modalClose.addEventListener('click', closeModal);
@@ -1236,14 +1272,460 @@ function setupEventListeners() {
 
     // 语言设置
     el.defaultTargetLanguage.addEventListener('change', (e) => {
-        getStorage().set({ targetLanguage: e.target.value });
+        saveSyncedValues({ targetLanguage: e.target.value });
         showStatus('默认目标语言已设置', 'success');
     });
 
     el.secondTargetLanguage.addEventListener('change', (e) => {
-        getStorage().set({ secondTargetLanguage: e.target.value });
+        saveSyncedValues({ secondTargetLanguage: e.target.value });
         showStatus('第二目标语言已设置', 'success');
     });
+
+    // Tab 切换
+    Object.values(elTab).forEach(tab => {
+        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    });
+
+    // 创作设置
+    elFeature.creationToggle.addEventListener('change', saveCreationSettings);
+    elFeature.creationPrompt.addEventListener('input', saveCreationSettings);
+
+    // Ask 设置
+    elFeature.askToggle.addEventListener('change', saveAskSettings);
+    elFeature.askConfigSelect.addEventListener('change', saveAskSettings);
+    elFeature.askFontSize.addEventListener('change', saveAskSettings);
+    elFeature.askPromptTemplate.addEventListener('input', saveAskSettings);
+
+    // WebDAV 同步设置
+    elSync.toggle.addEventListener('change', applyWebdavUI);
+    elSync.togglePassword.addEventListener('click', toggleWebdavPasswordVisibility);
+    elSync.saveSettings.addEventListener('click', saveWebdavSettingsAndSync);
+    elSync.testConnection.addEventListener('click', testWebdavConnection);
+    elSync.uploadNow.addEventListener('click', uploadWebdavNow);
+    elSync.downloadNow.addEventListener('click', downloadWebdavNow);
+}
+
+// ========== Tab 切换 ==========
+let currentTab = 'config';
+let creationEnabled = false;
+let creationPrompt = '';
+let askEnabled = false;
+let askConfigId = '';
+let askFontSize = '12';
+let askPromptTemplate = '';
+
+const elTab = {
+    config: document.querySelector('.settings-tab[data-tab="config"]'),
+    creation: document.querySelector('.settings-tab[data-tab="creation"]'),
+    ask: document.querySelector('.settings-tab[data-tab="ask"]'),
+    sync: document.querySelector('.settings-tab[data-tab="sync"]'),
+};
+
+const elFeature = {
+    creationToggle: $('creation-toggle'),
+    creationPrompt: $('creation-prompt'),
+    askToggle: $('ask-toggle'),
+    askConfigSelect: $('ask-config-select'),
+    askFontSize: $('ask-font-size'),
+    askPromptTemplate: $('ask-prompt-template'),
+};
+
+const elSync = {
+    toggle: $('webdav-sync-toggle'),
+    rootUrl: $('webdav-root-url'),
+    username: $('webdav-username'),
+    password: $('webdav-password'),
+    togglePassword: $('webdav-toggle-password'),
+    saveSettings: $('webdav-save-settings'),
+    testConnection: $('webdav-test-connection'),
+    uploadNow: $('webdav-upload-now'),
+    downloadNow: $('webdav-download-now'),
+    status: $('webdav-sync-status'),
+};
+
+function switchTab(tabName) {
+    currentTab = tabName;
+
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabName);
+    });
+
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.style.display = panel.id === `tab-${tabName}` ? 'block' : 'none';
+    });
+}
+
+// --- 功能设置持久化 ---
+async function loadFeatureSettings() {
+    const storage = getStorage();
+    const result = await storage.get([
+        'creationEnabled', 'creationPrompt',
+        'askEnabled', 'askConfigId', 'askFontSize', 'askPromptTemplate'
+    ]);
+    creationEnabled = result.creationEnabled === true;
+    creationPrompt = result.creationPrompt || '';
+    askEnabled = result.askEnabled === true;
+    askConfigId = result.askConfigId || '';
+    askFontSize = result.askFontSize || '12';
+    askPromptTemplate = result.askPromptTemplate || '';
+}
+
+function applyCreationUI() {
+    elFeature.creationToggle.checked = creationEnabled;
+    elFeature.creationPrompt.value = creationPrompt;
+    const tab = $('tab-creation');
+    tab.classList.toggle('disabled', !creationEnabled);
+}
+
+function applyAskUI() {
+    elFeature.askToggle.checked = askEnabled;
+    elFeature.askFontSize.value = askFontSize;
+    elFeature.askPromptTemplate.value = askPromptTemplate;
+    const tab = $('tab-ask');
+    tab.classList.toggle('disabled', !askEnabled);
+    renderAskConfigSelect();
+}
+
+async function saveCreationSettings() {
+    creationEnabled = elFeature.creationToggle.checked;
+    creationPrompt = elFeature.creationPrompt.value.trim();
+    const tab = $('tab-creation');
+    tab.classList.toggle('disabled', !creationEnabled);
+    await saveSyncedValues({ creationEnabled, creationPrompt });
+}
+
+async function saveAskSettings() {
+    askEnabled = elFeature.askToggle.checked;
+    askConfigId = elFeature.askConfigSelect.value;
+    askFontSize = elFeature.askFontSize.value;
+    askPromptTemplate = elFeature.askPromptTemplate.value;
+    const tab = $('tab-ask');
+    tab.classList.toggle('disabled', !askEnabled);
+    await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askPromptTemplate });
+}
+
+// --- Ask 配置选择 ---
+function renderAskConfigSelect() {
+    const select = elFeature.askConfigSelect;
+    const currentValue = select.value || askConfigId;
+    select.innerHTML = '<option value="">-- 请选择 LLM 配置 --</option>';
+    if (configurations.length === 0) {
+        select.innerHTML = '<option value="">请先在 LLM 配置页创建配置</option>';
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    configurations.forEach(config => {
+        const opt = document.createElement('option');
+        opt.value = config.id;
+        opt.textContent = config.name;
+        select.appendChild(opt);
+    });
+    if (currentValue && configurations.some(c => c.id === currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+// --- 顶部保存 ---
+async function saveAllSettingsAndRefresh() {
+    await saveSyncedValues({
+        targetLanguage: el.defaultTargetLanguage.value,
+        secondTargetLanguage: el.secondTargetLanguage.value
+    });
+    await saveCreationSettings();
+    await saveAskSettings();
+    await loadConfigurations();
+    await loadFeatureSettings();
+    renderConfigList();
+    renderAskConfigSelect();
+    loadLanguageSettings();
+    applyCreationUI();
+    applyAskUI();
+
+    if (webdavSyncSettings.enabled) {
+        await uploadWebdavSnapshot({ silent: true });
+    }
+
+    showStatus('设置已保存并刷新', 'success');
+}
+
+// --- WebDAV 同步 ---
+async function loadWebdavSettings() {
+    const result = await getStorage().get('webdavSyncSettings');
+    webdavSyncSettings = {
+        ...webdavSyncSettings,
+        ...(result.webdavSyncSettings || {})
+    };
+}
+
+function applyWebdavUI() {
+    if (!elSync.toggle) return;
+    const enabled = elSync.toggle.checked;
+    elSync.rootUrl.disabled = false;
+    elSync.username.disabled = false;
+    elSync.password.disabled = false;
+    elSync.testConnection.disabled = !enabled;
+    elSync.uploadNow.disabled = !enabled;
+    elSync.downloadNow.disabled = !enabled;
+    elSync.status.textContent = enabled ? '同步已开启，保存配置后会自动上传' : '未开启同步';
+}
+
+function renderWebdavSettings() {
+    elSync.toggle.checked = Boolean(webdavSyncSettings.enabled);
+    elSync.rootUrl.value = webdavSyncSettings.rootUrl || '';
+    elSync.username.value = webdavSyncSettings.username || '';
+    elSync.password.value = webdavSyncSettings.password || '';
+    applyWebdavUI();
+}
+
+function toggleWebdavPasswordVisibility() {
+    const type = elSync.password.type === 'password' ? 'text' : 'password';
+    elSync.password.type = type;
+    elSync.togglePassword.textContent = type === 'password' ? '👁️' : '🔒';
+}
+
+async function saveWebdavSettingsFromForm() {
+    const settings = {
+        enabled: elSync.toggle.checked,
+        rootUrl: elSync.rootUrl.value.trim(),
+        username: elSync.username.value.trim(),
+        password: elSync.password.value
+    };
+
+    if (settings.enabled && !settings.rootUrl) {
+        throw new Error('请填写 WebDAV 根目录');
+    }
+
+    webdavSyncSettings = settings;
+    await getStorage().set({ webdavSyncSettings });
+    applyWebdavUI();
+    return settings;
+}
+
+async function saveWebdavSettingsAndSync() {
+    try {
+        await saveWebdavSettingsFromForm();
+        if (!webdavSyncSettings.enabled) {
+            showStatus('WebDAV 同步已关闭', 'success');
+            return;
+        }
+        await syncWebdavSmart();
+    } catch (error) {
+        showStatus(error.message || 'WebDAV 设置保存失败', 'error', 5000);
+    }
+}
+
+async function testWebdavConnection() {
+    try {
+        await saveWebdavSettingsFromForm();
+        await ensureWebdavDirectory();
+        showStatus('WebDAV 连接成功', 'success');
+        elSync.status.textContent = 'WebDAV 连接成功';
+    } catch (error) {
+        showStatus(error.message || 'WebDAV 连接失败', 'error', 5000);
+        elSync.status.textContent = `连接失败：${error.message || '未知错误'}`;
+    }
+}
+
+async function uploadWebdavNow() {
+    try {
+        await saveWebdavSettingsFromForm();
+        await uploadWebdavSnapshot();
+    } catch (error) {
+        showStatus(error.message || '上传失败', 'error', 5000);
+    }
+}
+
+async function downloadWebdavNow() {
+    try {
+        await saveWebdavSettingsFromForm();
+        if (!confirm('确定用云端配置覆盖本机配置吗？')) return;
+        const snapshot = await fetchWebdavSnapshot();
+        if (!snapshot) {
+            showStatus('云端还没有配置文件', 'info');
+            return;
+        }
+        await applySyncedSnapshot(snapshot);
+        refreshSettingsUIFromState();
+        showStatus('已从云端下载配置', 'success');
+    } catch (error) {
+        showStatus(error.message || '下载失败', 'error', 5000);
+    }
+}
+
+async function syncWebdavSmart({ silent = false } = {}) {
+    const snapshot = await fetchWebdavSnapshot();
+    const local = await getStorage().get('syncLocalUpdatedAt');
+    const localUpdatedAt = Number(local.syncLocalUpdatedAt || 0);
+
+    if (snapshot && Number(snapshot.updatedAt || 0) > localUpdatedAt) {
+        await applySyncedSnapshot(snapshot);
+        refreshSettingsUIFromState();
+        if (!silent) showStatus('云端配置较新，已同步到本机', 'success');
+        return;
+    }
+
+    await uploadWebdavSnapshot({ silent });
+}
+
+function scheduleWebdavUpload() {
+    if (!webdavSyncSettings.enabled || !webdavSyncSettings.rootUrl) return;
+    if (webdavUploadTimer) clearTimeout(webdavUploadTimer);
+    webdavUploadTimer = setTimeout(() => {
+        uploadWebdavSnapshot({ silent: true }).catch(error => {
+            console.warn('WebDAV 自动上传失败:', error);
+            elSync.status.textContent = `自动上传失败：${error.message || '未知错误'}`;
+        });
+    }, 800);
+}
+
+async function uploadWebdavSnapshot({ silent = false } = {}) {
+    if (!webdavSyncSettings.enabled || !webdavSyncSettings.rootUrl) return;
+
+    const storage = getStorage();
+    const timestamp = Date.now();
+    await storage.set({ syncLocalUpdatedAt: timestamp });
+    const data = await storage.get(SYNC_DATA_KEYS);
+    const snapshot = {
+        app: 'ez-translate',
+        version: 1,
+        updatedAt: timestamp,
+        data
+    };
+
+    await ensureWebdavDirectory();
+    const response = await fetch(getWebdavFileUrl(), {
+        method: 'PUT',
+        headers: {
+            ...getWebdavAuthHeaders(),
+            'Content-Type': 'application/json; charset=utf-8'
+        },
+        body: JSON.stringify(snapshot, null, 2)
+    });
+
+    if (![200, 201, 204].includes(response.status)) {
+        throw new Error(`WebDAV 上传失败 (${response.status})`);
+    }
+
+    elSync.status.textContent = `上次同步：${new Date(timestamp).toLocaleString()}`;
+    if (!silent) showStatus('已上传本机配置到 WebDAV', 'success');
+}
+
+async function fetchWebdavSnapshot() {
+    const response = await fetch(getWebdavFileUrl(), {
+        method: 'GET',
+        headers: getWebdavAuthHeaders()
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+        throw new Error(`WebDAV 下载失败 (${response.status})`);
+    }
+
+    const snapshot = await response.json();
+    validateSyncedSnapshot(snapshot);
+    return snapshot;
+}
+
+async function ensureWebdavDirectory() {
+    const response = await fetch(getWebdavDirectoryUrl(), {
+        method: 'MKCOL',
+        headers: getWebdavAuthHeaders()
+    });
+
+    if ([200, 201, 204, 405, 409].includes(response.status)) return;
+    throw new Error(`WebDAV 目录创建失败 (${response.status})`);
+}
+
+async function applySyncedSnapshot(snapshot) {
+    validateSyncedSnapshot(snapshot);
+    const current = await getStorage().get(SYNC_DATA_KEYS);
+    const data = {};
+
+    SYNC_DATA_KEYS.forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(snapshot.data, key)) {
+            data[key] = snapshot.data[key];
+        }
+    });
+    const merged = { ...current, ...data };
+
+    await getStorage().set({
+        ...merged,
+        syncLocalUpdatedAt: Number(snapshot.updatedAt || Date.now())
+    });
+
+    configurations = Array.isArray(merged.configurations) ? merged.configurations : [];
+    activeConfigId = merged.activeConfigId || null;
+    creationEnabled = merged.creationEnabled === true;
+    creationPrompt = merged.creationPrompt || '';
+    askEnabled = merged.askEnabled === true;
+    askConfigId = merged.askConfigId || '';
+    askFontSize = merged.askFontSize || '12';
+    askPromptTemplate = merged.askPromptTemplate || '';
+}
+
+function validateSyncedSnapshot(snapshot) {
+    if (!snapshot || snapshot.app !== 'ez-translate' || !snapshot.data || typeof snapshot.data !== 'object') {
+        throw new Error('云端配置文件格式不正确');
+    }
+}
+
+function refreshSettingsUIFromState() {
+    renderConfigList();
+    renderAskConfigSelect();
+    loadLanguageSettings();
+    applyCreationUI();
+    applyAskUI();
+}
+
+function getWebdavDirectoryUrl() {
+    return joinWebdavUrl(SYNC_DIR_NAME);
+}
+
+function getWebdavFileUrl() {
+    return joinWebdavUrl(SYNC_DIR_NAME, SYNC_FILE_NAME);
+}
+
+function joinWebdavUrl(...segments) {
+    const context = getWebdavContext();
+    const base = context.url.replace(/\/+$/, '');
+    const path = segments.map(segment => encodeURIComponent(segment).replace(/%2F/g, '/')).join('/');
+    return `${base}/${path}`;
+}
+
+function getWebdavContext() {
+    const root = webdavSyncSettings.rootUrl || '';
+    if (!root) throw new Error('请填写 WebDAV 根目录');
+
+    let url;
+    try {
+        url = new URL(root);
+    } catch (error) {
+        throw new Error('WebDAV 根目录格式不正确');
+    }
+
+    if (!/^https?:$/.test(url.protocol)) {
+        throw new Error('WebDAV 根目录必须是 http 或 https 地址');
+    }
+
+    const username = webdavSyncSettings.username || decodeURIComponent(url.username || '');
+    const password = webdavSyncSettings.password || decodeURIComponent(url.password || '');
+    url.username = '';
+    url.password = '';
+
+    return {
+        url: url.toString(),
+        username,
+        password
+    };
+}
+
+function getWebdavAuthHeaders() {
+    const { username, password } = getWebdavContext();
+    if (!username && !password) return {};
+    return {
+        Authorization: `Basic ${btoa(unescape(encodeURIComponent(`${username}:${password}`)))}`
+    };
 }
 
 // --- 初始化 ---
@@ -1252,8 +1734,22 @@ async function initialize() {
     populateLanguages();
     await loadConfigurations();
     await migrateFromOldFormat();
+    await loadFeatureSettings();
+    await loadWebdavSettings();
+    renderWebdavSettings();
+    if (webdavSyncSettings.enabled && webdavSyncSettings.rootUrl) {
+        try {
+            await syncWebdavSmart({ silent: true });
+        } catch (error) {
+            console.warn('WebDAV 初始化同步失败:', error);
+            elSync.status.textContent = `初始化同步失败：${error.message || '未知错误'}`;
+        }
+    }
     renderConfigList();
+    renderAskConfigSelect();
     loadLanguageSettings();
+    applyCreationUI();
+    applyAskUI();
     setupEventListeners();
 }
 

@@ -7,54 +7,164 @@
 </head>
 <body>
     <h1 data-i18n="settingsTitle"></h1>
+    <div class="settings-top-actions">
+        <button id="btn-save-all-settings" class="btn-primary" type="button">保存并刷新配置状态</button>
+    </div>
 
-    <!-- ========== LLM 配置管理 ========== -->
-    <section class="config-management">
-        <div class="section-header">
-            <h2>LLM 配置管理</h2>
-            <button id="btn-new-config" class="btn-primary">+ 新建配置</button>
-        </div>
+    <!-- ========== Tab 导航 ========== -->
+    <div class="settings-tabs">
+        <div class="settings-tab active" data-tab="config">LLM 配置</div>
+        <div class="settings-tab" data-tab="creation">创作</div>
+        <div class="settings-tab" data-tab="ask">Ask</div>
+        <div class="settings-tab" data-tab="sync">同步</div>
+    </div>
 
-        <!-- 配置卡片列表 -->
-        <div id="config-list" class="config-list"></div>
-
-        <!-- 空状态 -->
-        <div id="config-empty" class="config-empty" style="display:none;">
-            <p>暂无配置，点击「新建配置」按钮创建第一个 LLM 配置档案</p>
-        </div>
-    </section>
-
-    <!-- ========== 目标语言设置 ========== -->
-    <section class="target-language-settings">
-        <h2 data-i18n="targetLanguageSettingsTitle"></h2>
-
-        <div class="form-group">
-            <label for="default-target-language" data-i18n="defaultTargetLanguageLabel"></label>
-            <p class="hint" data-i18n="defaultTargetLanguageHint"></p>
-            <select id="default-target-language"></select>
-        </div>
-
-        <div class="form-group">
-            <label for="second-target-language" data-i18n="secondTargetLanguageLabel"></label>
-            <p class="hint" data-i18n="secondTargetLanguageHint"></p>
-            <select id="second-target-language"></select>
-        </div>
-    </section>
-
-    <!-- ========== GitHub Section ========== -->
-    <section class="github-section">
-        <div class="github-content">
-            <h3 data-i18n="githubSectionTitle"></h3>
-            <p data-i18n="githubDescription"></p>
-            <div class="github-actions">
-                <a href="https://github.com/Abelliuxl/ez-translate-lite" target="_blank" class="github-link" data-i18n="visitGitHub"></a>
-                <a href="https://github.com/Abelliuxl/ez-translate-lite/issues" target="_blank" class="github-link issue-link" data-i18n="reportIssue"></a>
+    <!-- ========== Tab: LLM 配置 ========== -->
+    <div id="tab-config" class="tab-panel">
+        <section class="config-management">
+            <div class="section-header">
+                <h2>LLM 配置管理</h2>
+                <button id="btn-new-config" class="btn-primary">+ 新建配置</button>
             </div>
-            <p class="github-encouragement" data-i18n="githubEncouragement"></p>
-        </div>
-    </section>
 
-    <!-- ========== 配置编辑模态框 ========== -->
+            <div id="config-list" class="config-list"></div>
+
+            <div id="config-empty" class="config-empty" style="display:none;">
+                <p>暂无配置，点击「新建配置」按钮创建第一个 LLM 配置档案</p>
+            </div>
+        </section>
+
+        <section class="target-language-settings">
+            <h2 data-i18n="targetLanguageSettingsTitle"></h2>
+
+            <div class="form-group">
+                <label for="default-target-language" data-i18n="defaultTargetLanguageLabel"></label>
+                <p class="hint" data-i18n="defaultTargetLanguageHint"></p>
+                <select id="default-target-language"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="second-target-language" data-i18n="secondTargetLanguageLabel"></label>
+                <p class="hint" data-i18n="secondTargetLanguageHint"></p>
+                <select id="second-target-language"></select>
+            </div>
+        </section>
+
+        <section class="github-section">
+            <div class="github-content">
+                <h3 data-i18n="githubSectionTitle"></h3>
+                <p data-i18n="githubDescription"></p>
+                <div class="github-actions">
+                    <a href="https://github.com/Abelliuxl/ez-translate-lite" target="_blank" class="github-link" data-i18n="visitGitHub"></a>
+                    <a href="https://github.com/Abelliuxl/ez-translate-lite/issues" target="_blank" class="github-link issue-link" data-i18n="reportIssue"></a>
+                </div>
+                <p class="github-encouragement" data-i18n="githubEncouragement"></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- ========== Tab: 创作 ========== -->
+    <div id="tab-creation" class="tab-panel disabled" style="display:none;">
+        <section class="feature-section">
+            <div class="feature-toggle-row">
+                <h2>创作按钮</h2>
+                <label class="config-card-toggle">
+                    <input type="checkbox" id="creation-toggle">
+                    <span class="config-card-toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label for="creation-prompt">自定义 Prompt</label>
+                <p class="hint">设定创作按钮的行为。例如：「帮我校对润色以下文本」、「用更正式的语气改写」、「扩写成一段更详细的描述」</p>
+                <textarea id="creation-prompt" rows="6"
+                    placeholder="请帮我润色以下文本，修正语法错误并使表达更流畅："
+                ></textarea>
+            </div>
+        </section>
+    </div>
+
+    <!-- ========== Tab: Ask ========== -->
+    <div id="tab-ask" class="tab-panel disabled" style="display:none;">
+        <section class="feature-section">
+            <div class="feature-toggle-row">
+                <h2>Ask 功能</h2>
+                <label class="config-card-toggle">
+                    <input type="checkbox" id="ask-toggle">
+                    <span class="config-card-toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label for="ask-config-select">选择 LLM 配置</label>
+                <p class="hint">Ask 功能使用此配置的模型进行对话</p>
+                <select id="ask-config-select">
+                    <option value="">请先创建 LLM 配置</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="ask-font-size">对话字体大小</label>
+                <p class="hint">控制 Ask 对话窗口内消息的字体大小</p>
+                <select id="ask-font-size">
+                    <option value="12" selected>小 (12px)</option>
+                    <option value="13">默认 (13px)</option>
+                    <option value="14">大 (14px)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="ask-prompt-template">咨询 Prompt 模板</label>
+                <p class="hint">点击 Ask 按钮时自动发送的咨询消息模板。可使用 <code>{text}</code>（原文）和 <code>{translation}</code>（译文）占位符</p>
+                <textarea id="ask-prompt-template" rows="5"
+                    placeholder="我在网页上看到了以下文本，想请你帮我分析一下：&#10;&#10;原文：{text}&#10;&#10;{translation}&#10;&#10;请帮我分析以上文本的主要内容和含义，并提供相关的背景知识或见解。"
+                ></textarea>
+            </div>
+        </section>
+    </div>
+
+    <!-- ========== Tab: 同步 ========== -->
+    <div id="tab-sync" class="tab-panel" style="display:none;">
+        <section class="feature-section">
+            <div class="feature-toggle-row">
+                <h2>WebDAV 同步</h2>
+                <label class="config-card-toggle">
+                    <input type="checkbox" id="webdav-sync-toggle">
+                    <span class="config-card-toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label for="webdav-root-url">WebDAV 根目录</label>
+                <p class="hint">只填写 WebDAV 根目录即可，插件会自动使用 <code>ez-translate/config.json</code> 保存配置。</p>
+                <input type="text" id="webdav-root-url" placeholder="https://example.com/dav">
+            </div>
+
+            <div class="form-group">
+                <label for="webdav-username">账号</label>
+                <input type="text" id="webdav-username" placeholder="WebDAV 用户名">
+            </div>
+
+            <div class="form-group">
+                <label for="webdav-password">密码</label>
+                <div class="input-with-toggle">
+                    <input type="password" id="webdav-password" placeholder="WebDAV 密码或应用专用密码">
+                    <button id="webdav-toggle-password" class="toggle-btn" type="button" title="显示/隐藏">👁️</button>
+                </div>
+            </div>
+
+            <div class="sync-actions">
+                <button id="webdav-save-settings" class="btn-primary" type="button">保存并同步</button>
+                <button id="webdav-test-connection" class="btn-secondary" type="button">测试连接</button>
+                <button id="webdav-upload-now" class="btn-secondary" type="button">上传本机配置</button>
+                <button id="webdav-download-now" class="btn-secondary" type="button">从云端下载</button>
+            </div>
+
+            <p id="webdav-sync-status" class="sync-status">未开启同步</p>
+        </section>
+    </div>
+
+    <!-- ========== 配置编辑模态框（全局通用） ========== -->
     <div id="config-modal" class="modal" style="display:none;">
         <div class="modal-overlay"></div>
         <div class="modal-content">
@@ -63,13 +173,11 @@
                 <button id="modal-close" class="modal-close" type="button">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- 配置名称 -->
                 <div class="form-group">
                     <label for="config-name">配置名称</label>
                     <input type="text" id="config-name" placeholder="例如：DeepSeek V3 快速翻译">
                 </div>
 
-                <!-- 提供商选择 -->
                 <div class="form-group">
                     <label for="config-provider">选择提供商</label>
                     <select id="config-provider">
@@ -94,7 +202,6 @@
                     </select>
                 </div>
 
-                <!-- API Key -->
                 <div class="form-group" id="config-apikey-group" style="display:none;">
                     <label>
                         <span id="config-apikey-label">API密钥</span>
@@ -109,7 +216,6 @@
                     </div>
                 </div>
 
-                <!-- Server URL -->
                 <div class="form-group" id="config-serverurl-group" style="display:none;">
                     <label>
                         <span id="config-serverurl-label">服务器地址</span>
@@ -121,7 +227,6 @@
                     </div>
                 </div>
 
-                <!-- 模型选择 -->
                 <div class="form-group">
                     <label for="config-model-select">选择模型</label>
                     <div class="model-controls">
@@ -133,7 +238,6 @@
                     <p class="hint" id="config-model-hint">配置API密钥后点击"获取模型列表"按钮</p>
                 </div>
 
-                <!-- 自定义模型 -->
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" id="config-custom-model-checkbox">
@@ -145,11 +249,9 @@
                     </div>
                 </div>
 
-                <!-- ====== 高级选项 ====== -->
                 <div class="advanced-section">
                     <h4>高级选项</h4>
 
-                    <!-- 思考模式 -->
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="config-thinking-checkbox">
@@ -158,7 +260,6 @@
                         <p class="hint">启用后模型会进行深度思考再回答。对 DeepSeek R1 等推理模型建议开启。</p>
                     </div>
 
-                    <!-- 推理强度 -->
                     <div class="form-group" id="config-reasoning-group">
                         <label for="config-reasoning-select">推理强度</label>
                         <select id="config-reasoning-select">
@@ -170,7 +271,6 @@
                         </select>
                     </div>
 
-                    <!-- 自定义推理强度 -->
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="config-custom-reasoning-checkbox">

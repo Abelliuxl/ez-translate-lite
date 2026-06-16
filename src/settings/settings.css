@@ -1,6 +1,11 @@
 /* --- 全局与布局 --- */
 body { font-family: sans-serif; padding: 20px; max-width: 640px; margin: auto; background-color: #f8f9fa; }
 h1 { text-align: center; color: #343a40; }
+.settings-top-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin: -6px 0 18px;
+}
 .form-group { margin-bottom: 20px; }
 label { display: block; margin-bottom: 8px; font-weight: 500; color: #495057; }
 input[type="password"], input[type="text"], select { width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
@@ -504,10 +509,109 @@ label a:hover { text-decoration: underline; }
     line-height: 1.5;
 }
 
+/* ==== Tab 导航 ==== */
+.settings-tabs {
+    display: flex;
+    border-bottom: 2px solid #e9ecef;
+    margin-bottom: 24px;
+    gap: 4px;
+}
+.settings-tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    color: #6c757d;
+    font-size: 14px;
+    font-weight: 500;
+    transition: color 0.2s, border-color 0.2s;
+    user-select: none;
+}
+.settings-tab:hover { color: #343a40; }
+.settings-tab.active {
+    color: #007bff;
+    border-bottom-color: #007bff;
+}
+
+.tab-panel { display: block; }
+.tab-panel.disabled { pointer-events: none; opacity: 0.5; }
+.tab-panel.disabled .feature-toggle-row { pointer-events: auto; opacity: 1; }
+
+/* ==== 功能设置区 ==== */
+.feature-section { margin-bottom: 30px; }
+
+.feature-toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.feature-toggle-row h2,
+.feature-toggle-row h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #343a40;
+}
+
+#creation-prompt {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: sans-serif;
+    resize: vertical;
+    box-sizing: border-box;
+    line-height: 1.5;
+}
+#creation-prompt:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0,123,255,0.15);
+}
+
+/* ==== Ask 配置选择 ==== */
+#ask-config-select { width: 100%; }
+
+#ask-prompt-template {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: sans-serif;
+    resize: vertical;
+    box-sizing: border-box;
+    line-height: 1.5;
+}
+#ask-prompt-template:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0,123,255,0.15);
+}
+
+/* ==== WebDAV 同步 ==== */
+.sync-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+}
+.sync-status {
+    margin: 14px 0 0;
+    color: #6c757d;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 /* --- 响应式 --- */
 @media (max-width: 480px) {
     .modal-content { width: 95%; max-height: 90vh; }
     .modal-body { padding: 16px; }
     .github-actions { flex-direction: column; align-items: center; }
     .github-link { width: 100%; max-width: 200px; justify-content: center; }
+    .settings-top-actions { justify-content: stretch; }
+    .settings-top-actions .btn-primary { width: 100%; }
+    .sync-actions { flex-direction: column; align-items: stretch; }
 }

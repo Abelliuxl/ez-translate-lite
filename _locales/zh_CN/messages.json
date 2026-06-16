@@ -674,5 +674,17 @@
     "enableSyncHint": {
         "message": "开启后，配置将同步到所有登录了相同浏览器账户的设备。注意：API 密钥也会被同步。",
         "description": "解释浏览器同步功能的提示。"
+    },
+    "creationButtonTitle": {
+        "message": "创作",
+        "description": "创作按钮的标题"
+    },
+    "creationStatusText": {
+        "message": "创作中...",
+        "description": "创作请求处理中的状态文本"
+    },
+    "creationPromptPlaceholder": {
+        "message": "请帮我润色以下文本，修正语法错误并使表达更流畅：",
+        "description": "创作 prompt 输入框的占位符"
     }
 }
