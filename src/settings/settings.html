@@ -135,6 +135,21 @@
                 <input type="password" id="ask-tavily-api-key" placeholder="tvly-...">
             </div>
 
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="ask-vision-toggle">
+                    图片 Ask 使用独立 Vision LLM 解析
+                </label>
+                <p class="hint">关闭时，图片会直接发送给 Ask LLM；开启时，先用下面选择的 Vision LLM 解析图片，再把解析结果交给 Ask LLM。</p>
+            </div>
+
+            <div class="form-group">
+                <label for="ask-vision-config-select">选择 Vision LLM 配置</label>
+                <select id="ask-vision-config-select">
+                    <option value="">请先创建 LLM 配置</option>
+                </select>
+            </div>
+
         </section>
     </div>
 

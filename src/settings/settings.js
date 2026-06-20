@@ -175,7 +175,9 @@ const SYNC_DATA_KEYS = [
     'askConfigId',
     'askFontSize',
     'askSearchEnabled',
-    'askTavilyApiKey'
+    'askTavilyApiKey',
+    'askVisionEnabled',
+    'askVisionConfigId'
 ];
 
 // --- DOM 元素 ---
@@ -453,12 +455,16 @@ async function deleteConfig(configId) {
     if (askConfigId === configId) {
         askConfigId = '';
     }
+    if (askVisionConfigId === configId) {
+        askVisionConfigId = '';
+    }
 
     await saveConfigurations();
-    await saveSyncedValues({ creationConfigId, askConfigId });
+    await saveSyncedValues({ creationConfigId, askConfigId, askVisionConfigId });
     renderConfigList();
     renderCreationConfigSelect();
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
     showStatus('配置已删除', 'success');
 }
 
@@ -603,6 +609,7 @@ async function saveConfigFromModal() {
     renderConfigList();
     renderCreationConfigSelect();
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
     closeModal();
 
     if (editingConfigId) {
@@ -1309,6 +1316,8 @@ function setupEventListeners() {
     elFeature.askFontSize.addEventListener('change', saveAskSettings);
     elFeature.askSearchToggle.addEventListener('change', saveAskSettings);
     elFeature.askTavilyApiKey.addEventListener('input', saveAskSettings);
+    elFeature.askVisionToggle.addEventListener('change', saveAskSettings);
+    elFeature.askVisionConfigSelect.addEventListener('change', saveAskSettings);
 
     // WebDAV 同步设置
     elSync.toggle.addEventListener('change', applyWebdavUI);
@@ -1329,6 +1338,8 @@ let askConfigId = '';
 let askFontSize = '12';
 let askSearchEnabled = false;
 let askTavilyApiKey = '';
+let askVisionEnabled = false;
+let askVisionConfigId = '';
 
 const elTab = {
     config: document.querySelector('.settings-tab[data-tab="config"]'),
@@ -1347,6 +1358,8 @@ const elFeature = {
     askFontSize: $('ask-font-size'),
     askSearchToggle: $('ask-search-toggle'),
     askTavilyApiKey: $('ask-tavily-api-key'),
+    askVisionToggle: $('ask-vision-toggle'),
+    askVisionConfigSelect: $('ask-vision-config-select'),
 };
 
 const elSync = {
@@ -1379,7 +1392,7 @@ async function loadFeatureSettings() {
     const storage = getStorage();
     const result = await storage.get([
         'creationEnabled', 'creationConfigId', 'creationPrompt',
-        'askEnabled', 'askConfigId', 'askFontSize', 'askSearchEnabled', 'askTavilyApiKey'
+        'askEnabled', 'askConfigId', 'askFontSize', 'askSearchEnabled', 'askTavilyApiKey', 'askVisionEnabled', 'askVisionConfigId'
     ]);
     creationEnabled = result.creationEnabled === true;
     creationConfigId = result.creationConfigId || '';
@@ -1389,6 +1402,8 @@ async function loadFeatureSettings() {
     askFontSize = result.askFontSize || '12';
     askSearchEnabled = result.askSearchEnabled === true;
     askTavilyApiKey = result.askTavilyApiKey || '';
+    askVisionEnabled = result.askVisionEnabled === true;
+    askVisionConfigId = result.askVisionConfigId || '';
 }
 
 function applyCreationUI() {
@@ -1404,9 +1419,12 @@ function applyAskUI() {
     elFeature.askFontSize.value = askFontSize;
     elFeature.askSearchToggle.checked = askSearchEnabled;
     elFeature.askTavilyApiKey.value = askTavilyApiKey;
+    elFeature.askVisionToggle.checked = askVisionEnabled;
     const tab = $('tab-ask');
     tab.classList.toggle('disabled', !askEnabled);
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
+    elFeature.askVisionConfigSelect.disabled = !askVisionEnabled || elFeature.askVisionConfigSelect.disabled;
 }
 
 async function saveCreationSettings() {
@@ -1424,9 +1442,12 @@ async function saveAskSettings() {
     askFontSize = elFeature.askFontSize.value;
     askSearchEnabled = elFeature.askSearchToggle.checked;
     askTavilyApiKey = elFeature.askTavilyApiKey.value.trim();
+    askVisionEnabled = elFeature.askVisionToggle.checked;
+    askVisionConfigId = elFeature.askVisionConfigSelect.value;
     const tab = $('tab-ask');
     tab.classList.toggle('disabled', !askEnabled);
-    await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askSearchEnabled, askTavilyApiKey });
+    elFeature.askVisionConfigSelect.disabled = !askVisionEnabled || configurations.length === 0;
+    await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askSearchEnabled, askTavilyApiKey, askVisionEnabled, askVisionConfigId });
 }
 
 // --- 功能配置选择 ---
@@ -1458,6 +1479,10 @@ function renderAskConfigSelect() {
     renderFeatureConfigSelect(elFeature.askConfigSelect, askConfigId);
 }
 
+function renderAskVisionConfigSelect() {
+    renderFeatureConfigSelect(elFeature.askVisionConfigSelect, askVisionConfigId);
+}
+
 // --- 顶部保存 ---
 async function saveAllSettingsAndRefresh() {
     await saveSyncedValues({
@@ -1471,6 +1496,7 @@ async function saveAllSettingsAndRefresh() {
     renderConfigList();
     renderCreationConfigSelect();
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
     applyAskUI();
@@ -1697,6 +1723,8 @@ async function applySyncedSnapshot(snapshot) {
     askFontSize = merged.askFontSize || '12';
     askSearchEnabled = merged.askSearchEnabled === true;
     askTavilyApiKey = merged.askTavilyApiKey || '';
+    askVisionEnabled = merged.askVisionEnabled === true;
+    askVisionConfigId = merged.askVisionConfigId || '';
 }
 
 function validateSyncedSnapshot(snapshot) {
@@ -1709,6 +1737,7 @@ function refreshSettingsUIFromState() {
     renderConfigList();
     renderCreationConfigSelect();
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
     applyAskUI();
@@ -1784,6 +1813,7 @@ async function initialize() {
     renderConfigList();
     renderCreationConfigSelect();
     renderAskConfigSelect();
+    renderAskVisionConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
     applyAskUI();
