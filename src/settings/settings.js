@@ -174,7 +174,8 @@ const SYNC_DATA_KEYS = [
     'askEnabled',
     'askConfigId',
     'askFontSize',
-    'askPromptTemplate'
+    'askSearchEnabled',
+    'askTavilyApiKey'
 ];
 
 // --- DOM 元素 ---
@@ -1306,7 +1307,8 @@ function setupEventListeners() {
     elFeature.askToggle.addEventListener('change', saveAskSettings);
     elFeature.askConfigSelect.addEventListener('change', saveAskSettings);
     elFeature.askFontSize.addEventListener('change', saveAskSettings);
-    elFeature.askPromptTemplate.addEventListener('input', saveAskSettings);
+    elFeature.askSearchToggle.addEventListener('change', saveAskSettings);
+    elFeature.askTavilyApiKey.addEventListener('input', saveAskSettings);
 
     // WebDAV 同步设置
     elSync.toggle.addEventListener('change', applyWebdavUI);
@@ -1325,7 +1327,8 @@ let creationPrompt = '';
 let askEnabled = false;
 let askConfigId = '';
 let askFontSize = '12';
-let askPromptTemplate = '';
+let askSearchEnabled = false;
+let askTavilyApiKey = '';
 
 const elTab = {
     config: document.querySelector('.settings-tab[data-tab="config"]'),
@@ -1342,7 +1345,8 @@ const elFeature = {
     askToggle: $('ask-toggle'),
     askConfigSelect: $('ask-config-select'),
     askFontSize: $('ask-font-size'),
-    askPromptTemplate: $('ask-prompt-template'),
+    askSearchToggle: $('ask-search-toggle'),
+    askTavilyApiKey: $('ask-tavily-api-key'),
 };
 
 const elSync = {
@@ -1375,7 +1379,7 @@ async function loadFeatureSettings() {
     const storage = getStorage();
     const result = await storage.get([
         'creationEnabled', 'creationConfigId', 'creationPrompt',
-        'askEnabled', 'askConfigId', 'askFontSize', 'askPromptTemplate'
+        'askEnabled', 'askConfigId', 'askFontSize', 'askSearchEnabled', 'askTavilyApiKey'
     ]);
     creationEnabled = result.creationEnabled === true;
     creationConfigId = result.creationConfigId || '';
@@ -1383,7 +1387,8 @@ async function loadFeatureSettings() {
     askEnabled = result.askEnabled === true;
     askConfigId = result.askConfigId || '';
     askFontSize = result.askFontSize || '12';
-    askPromptTemplate = result.askPromptTemplate || '';
+    askSearchEnabled = result.askSearchEnabled === true;
+    askTavilyApiKey = result.askTavilyApiKey || '';
 }
 
 function applyCreationUI() {
@@ -1397,7 +1402,8 @@ function applyCreationUI() {
 function applyAskUI() {
     elFeature.askToggle.checked = askEnabled;
     elFeature.askFontSize.value = askFontSize;
-    elFeature.askPromptTemplate.value = askPromptTemplate;
+    elFeature.askSearchToggle.checked = askSearchEnabled;
+    elFeature.askTavilyApiKey.value = askTavilyApiKey;
     const tab = $('tab-ask');
     tab.classList.toggle('disabled', !askEnabled);
     renderAskConfigSelect();
@@ -1416,10 +1422,11 @@ async function saveAskSettings() {
     askEnabled = elFeature.askToggle.checked;
     askConfigId = elFeature.askConfigSelect.value;
     askFontSize = elFeature.askFontSize.value;
-    askPromptTemplate = elFeature.askPromptTemplate.value;
+    askSearchEnabled = elFeature.askSearchToggle.checked;
+    askTavilyApiKey = elFeature.askTavilyApiKey.value.trim();
     const tab = $('tab-ask');
     tab.classList.toggle('disabled', !askEnabled);
-    await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askPromptTemplate });
+    await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askSearchEnabled, askTavilyApiKey });
 }
 
 // --- 功能配置选择 ---
@@ -1688,7 +1695,8 @@ async function applySyncedSnapshot(snapshot) {
     askEnabled = merged.askEnabled === true;
     askConfigId = merged.askConfigId || '';
     askFontSize = merged.askFontSize || '12';
-    askPromptTemplate = merged.askPromptTemplate || '';
+    askSearchEnabled = merged.askSearchEnabled === true;
+    askTavilyApiKey = merged.askTavilyApiKey || '';
 }
 
 function validateSyncedSnapshot(snapshot) {

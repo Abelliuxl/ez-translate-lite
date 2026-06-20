@@ -579,23 +579,6 @@ label a:hover { text-decoration: underline; }
 /* ==== Ask 配置选择 ==== */
 #ask-config-select { width: 100%; }
 
-#ask-prompt-template {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    font-size: 14px;
-    font-family: sans-serif;
-    resize: vertical;
-    box-sizing: border-box;
-    line-height: 1.5;
-}
-#ask-prompt-template:focus {
-    border-color: #007bff;
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(0,123,255,0.15);
-}
-
 /* ==== WebDAV 同步 ==== */
 .sync-actions {
     display: flex;

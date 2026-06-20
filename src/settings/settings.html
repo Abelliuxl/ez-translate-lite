@@ -123,12 +123,18 @@
             </div>
 
             <div class="form-group">
-                <label for="ask-prompt-template">咨询 Prompt 模板</label>
-                <p class="hint">点击 Ask 按钮时自动发送的咨询消息模板。可使用 <code>{text}</code>（原文）和 <code>{translation}</code>（译文）占位符</p>
-                <textarea id="ask-prompt-template" rows="5"
-                    placeholder="我在网页上看到了以下文本，想请你帮我分析一下：&#10;&#10;原文：{text}&#10;&#10;{translation}&#10;&#10;请帮我分析以上文本的主要内容和含义，并提供相关的背景知识或见解。"
-                ></textarea>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="ask-search-toggle">
+                    启用 Tavily 联网搜索
+                </label>
+                <p class="hint">开启并填写 Tavily API Key 后，Ask 会使用 OpenAI-compatible tool call 自动搜索和抓取网页；关闭或未填写 Key 时保持纯 LLM 对话。</p>
             </div>
+
+            <div class="form-group">
+                <label for="ask-tavily-api-key">Tavily API Key</label>
+                <input type="password" id="ask-tavily-api-key" placeholder="tvly-...">
+            </div>
+
         </section>
     </div>
 
