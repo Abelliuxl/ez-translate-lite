@@ -76,6 +76,14 @@
             </div>
 
             <div class="form-group">
+                <label for="creation-config-select">选择 LLM 配置</label>
+                <p class="hint">创作功能使用此配置的模型生成或改写文本</p>
+                <select id="creation-config-select">
+                    <option value="">请先创建 LLM 配置</option>
+                </select>
+            </div>
+
+            <div class="form-group">
                 <label for="creation-prompt">自定义 Prompt</label>
                 <p class="hint">设定创作按钮的行为。例如：「帮我校对润色以下文本」、「用更正式的语气改写」、「扩写成一段更详细的描述」</p>
                 <textarea id="creation-prompt" rows="6"

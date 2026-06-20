@@ -367,13 +367,25 @@ async function handleTranslation({ text, targetLanguage, secondTargetLanguage, s
 async function handleCreation({ text, stream, requestId, sender, sendResponse }) {
     try {
         const storage = getStorage();
-        const settingsResult = await storage.get('creationPrompt');
+        const settingsResult = await storage.get(['creationPrompt', 'creationConfigId', 'configurations']);
         const customPrompt = (settingsResult.creationPrompt || '').trim() || '请帮我润色以下文本：';
+        const configId = settingsResult.creationConfigId;
+        if (!configId) {
+            sendResponse({ error: '创作功能未配置 LLM' });
+            return;
+        }
 
-        const resolved = await resolveActiveProviderSettings();
+        const configs = settingsResult.configurations || [];
+        const activeConfig = configs.find(c => c.id === configId);
+        if (!activeConfig) {
+            sendResponse({ error: '创作功能的 LLM 配置不存在' });
+            return;
+        }
+
+        const resolved = resolveConfigSettings(activeConfig);
         const { currentProvider, apiKey, serverUrl, selectedModel } = resolved;
         if (!currentProvider || !selectedModel) {
-            sendResponse({ error: '请先在设置页面配置LLM提供商和模型' });
+            sendResponse({ error: '创作功能的 LLM 配置不完整' });
             return;
         }
 

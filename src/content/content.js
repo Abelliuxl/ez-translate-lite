@@ -1489,7 +1489,16 @@ function bindChatEvents(dialog) {
         sendBtn.addEventListener('click', doSend);
     }
     if (input) {
+        input.addEventListener('compositionstart', () => {
+            input.dataset.composing = 'true';
+        });
+        input.addEventListener('compositionend', () => {
+            input.dataset.composing = 'false';
+        });
         input.addEventListener('keydown', (e) => {
+            if (e.isComposing || e.keyCode === 229 || input.dataset.composing === 'true') {
+                return;
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 doSend();

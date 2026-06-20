@@ -169,6 +169,7 @@ const SYNC_DATA_KEYS = [
     'secondTargetLanguage',
     'isSelectionTranslationEnabled',
     'creationEnabled',
+    'creationConfigId',
     'creationPrompt',
     'askEnabled',
     'askConfigId',
@@ -445,9 +446,18 @@ async function deleteConfig(configId) {
     if (activeConfigId === configId) {
         activeConfigId = configurations.length > 0 ? configurations[0].id : null;
     }
+    if (creationConfigId === configId) {
+        creationConfigId = '';
+    }
+    if (askConfigId === configId) {
+        askConfigId = '';
+    }
 
     await saveConfigurations();
+    await saveSyncedValues({ creationConfigId, askConfigId });
     renderConfigList();
+    renderCreationConfigSelect();
+    renderAskConfigSelect();
     showStatus('配置已删除', 'success');
 }
 
@@ -590,6 +600,7 @@ async function saveConfigFromModal() {
 
     await saveConfigurations();
     renderConfigList();
+    renderCreationConfigSelect();
     renderAskConfigSelect();
     closeModal();
 
@@ -1288,6 +1299,7 @@ function setupEventListeners() {
 
     // 创作设置
     elFeature.creationToggle.addEventListener('change', saveCreationSettings);
+    elFeature.creationConfigSelect.addEventListener('change', saveCreationSettings);
     elFeature.creationPrompt.addEventListener('input', saveCreationSettings);
 
     // Ask 设置
@@ -1308,6 +1320,7 @@ function setupEventListeners() {
 // ========== Tab 切换 ==========
 let currentTab = 'config';
 let creationEnabled = false;
+let creationConfigId = '';
 let creationPrompt = '';
 let askEnabled = false;
 let askConfigId = '';
@@ -1324,6 +1337,7 @@ const elTab = {
 
 const elFeature = {
     creationToggle: $('creation-toggle'),
+    creationConfigSelect: $('creation-config-select'),
     creationPrompt: $('creation-prompt'),
     askToggle: $('ask-toggle'),
     askConfigSelect: $('ask-config-select'),
@@ -1360,10 +1374,11 @@ function switchTab(tabName) {
 async function loadFeatureSettings() {
     const storage = getStorage();
     const result = await storage.get([
-        'creationEnabled', 'creationPrompt',
+        'creationEnabled', 'creationConfigId', 'creationPrompt',
         'askEnabled', 'askConfigId', 'askFontSize', 'askPromptTemplate'
     ]);
     creationEnabled = result.creationEnabled === true;
+    creationConfigId = result.creationConfigId || '';
     creationPrompt = result.creationPrompt || '';
     askEnabled = result.askEnabled === true;
     askConfigId = result.askConfigId || '';
@@ -1376,6 +1391,7 @@ function applyCreationUI() {
     elFeature.creationPrompt.value = creationPrompt;
     const tab = $('tab-creation');
     tab.classList.toggle('disabled', !creationEnabled);
+    renderCreationConfigSelect();
 }
 
 function applyAskUI() {
@@ -1389,10 +1405,11 @@ function applyAskUI() {
 
 async function saveCreationSettings() {
     creationEnabled = elFeature.creationToggle.checked;
+    creationConfigId = elFeature.creationConfigSelect.value;
     creationPrompt = elFeature.creationPrompt.value.trim();
     const tab = $('tab-creation');
     tab.classList.toggle('disabled', !creationEnabled);
-    await saveSyncedValues({ creationEnabled, creationPrompt });
+    await saveSyncedValues({ creationEnabled, creationConfigId, creationPrompt });
 }
 
 async function saveAskSettings() {
@@ -1405,10 +1422,9 @@ async function saveAskSettings() {
     await saveSyncedValues({ askEnabled, askConfigId, askFontSize, askPromptTemplate });
 }
 
-// --- Ask 配置选择 ---
-function renderAskConfigSelect() {
-    const select = elFeature.askConfigSelect;
-    const currentValue = select.value || askConfigId;
+// --- 功能配置选择 ---
+function renderFeatureConfigSelect(select, selectedConfigId) {
+    const currentValue = select.value || selectedConfigId;
     select.innerHTML = '<option value="">-- 请选择 LLM 配置 --</option>';
     if (configurations.length === 0) {
         select.innerHTML = '<option value="">请先在 LLM 配置页创建配置</option>';
@@ -1427,6 +1443,14 @@ function renderAskConfigSelect() {
     }
 }
 
+function renderCreationConfigSelect() {
+    renderFeatureConfigSelect(elFeature.creationConfigSelect, creationConfigId);
+}
+
+function renderAskConfigSelect() {
+    renderFeatureConfigSelect(elFeature.askConfigSelect, askConfigId);
+}
+
 // --- 顶部保存 ---
 async function saveAllSettingsAndRefresh() {
     await saveSyncedValues({
@@ -1438,6 +1462,7 @@ async function saveAllSettingsAndRefresh() {
     await loadConfigurations();
     await loadFeatureSettings();
     renderConfigList();
+    renderCreationConfigSelect();
     renderAskConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
@@ -1658,6 +1683,7 @@ async function applySyncedSnapshot(snapshot) {
     configurations = Array.isArray(merged.configurations) ? merged.configurations : [];
     activeConfigId = merged.activeConfigId || null;
     creationEnabled = merged.creationEnabled === true;
+    creationConfigId = merged.creationConfigId || '';
     creationPrompt = merged.creationPrompt || '';
     askEnabled = merged.askEnabled === true;
     askConfigId = merged.askConfigId || '';
@@ -1673,6 +1699,7 @@ function validateSyncedSnapshot(snapshot) {
 
 function refreshSettingsUIFromState() {
     renderConfigList();
+    renderCreationConfigSelect();
     renderAskConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
@@ -1747,6 +1774,7 @@ async function initialize() {
         }
     }
     renderConfigList();
+    renderCreationConfigSelect();
     renderAskConfigSelect();
     loadLanguageSettings();
     applyCreationUI();
