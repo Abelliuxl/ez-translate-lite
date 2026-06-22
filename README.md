@@ -1,3 +1,5 @@
+> 🌐 **Homepage**: <https://liuxl.com.cn/ez-translate-lite/>
+
 <div align="center">
   <img src="icons/icon128.png" alt="EZ Translate Lite Logo" width="128" height="128">
   <h1>EZ Translate Lite: Lightweight Browser Translation Plugin</h1>
