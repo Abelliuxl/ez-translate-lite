@@ -1,0 +1,32 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create extension zip
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP_NAME="ez-translate-lite-${VERSION}.zip"
+          zip -r "$ZIP_NAME" \
+            manifest.json \
+            src/ \
+            icons/ \
+            _locales/ \
+            README.md \
+            PRIVACY_POLICY.md \
+            LICENSE
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ez-translate-lite-*.zip
+          generate_release_notes: true

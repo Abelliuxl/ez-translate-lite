@@ -1059,6 +1059,39 @@ function positionFloatingElement(element, clientX, clientY, offsetY = 15) {
     element.style.top = `${top}px`;
 }
 
+function constrainFloatingElementPosition(element, left, top, isFixed) {
+    const margin = 12;
+    const rect = element.getBoundingClientRect();
+    const width = rect.width || element.offsetWidth || 0;
+    const height = rect.height || element.offsetHeight || 0;
+    const viewportLeft = isFixed ? 0 : window.scrollX;
+    const viewportTop = isFixed ? 0 : window.scrollY;
+
+    const minLeft = viewportLeft + margin;
+    const minTop = viewportTop + margin;
+    const maxLeft = viewportLeft + window.innerWidth - width - margin;
+    const maxTop = viewportTop + window.innerHeight - height - margin;
+
+    return {
+        left: Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft)),
+        top: Math.min(Math.max(top, minTop), Math.max(minTop, maxTop))
+    };
+}
+
+function keepFloatingElementInViewport(element) {
+    if (!element) return;
+
+    const style = window.getComputedStyle(element);
+    const isFixed = style.position === 'fixed';
+    const rect = element.getBoundingClientRect();
+    const left = isFixed ? rect.left : rect.left + window.scrollX;
+    const top = isFixed ? rect.top : rect.top + window.scrollY;
+    const constrained = constrainFloatingElementPosition(element, left, top, isFixed);
+
+    element.style.left = `${constrained.left}px`;
+    element.style.top = `${constrained.top}px`;
+}
+
 function preventFocusSteal(event) {
     event.preventDefault();
 }
@@ -1127,11 +1160,13 @@ function makeDraggable(element, handle) {
 
         if (isFixed) {
             const rect = element.getBoundingClientRect();
-            element.style.top = `${rect.top - dy}px`;
-            element.style.left = `${rect.left - dx}px`;
+            const constrained = constrainFloatingElementPosition(element, rect.left - dx, rect.top - dy, true);
+            element.style.top = `${constrained.top}px`;
+            element.style.left = `${constrained.left}px`;
         } else {
-            element.style.top = `${element.offsetTop - dy}px`;
-            element.style.left = `${element.offsetLeft - dx}px`;
+            const constrained = constrainFloatingElementPosition(element, element.offsetLeft - dx, element.offsetTop - dy, false);
+            element.style.top = `${constrained.top}px`;
+            element.style.left = `${constrained.left}px`;
         }
     }
 
@@ -1487,6 +1522,7 @@ function showChatDialog(x, y) {
     chatDialog.style.left = `${Math.max(margin, Math.min(x, window.innerWidth - 520))}px`;
     chatDialog.style.top = `${Math.max(margin, y + 10)}px`;
     chatDialog.style.display = 'flex';
+    keepFloatingElementInViewport(chatDialog);
 
     chatDialog.style.opacity = '0';
     chatDialog.style.transform = 'translateY(10px)';
@@ -1543,6 +1579,7 @@ function morphToChatDialog(attachedText, attachedTranslation) {
         resultPopover.style.display = 'flex';
         resultPopover.style.maxWidth = '';
         resultPopover.classList.remove('mode-creation');
+        keepFloatingElementInViewport(resultPopover);
 
         bindChatEvents(resultPopover);
         const header = resultPopover.querySelector('.chat-header');
