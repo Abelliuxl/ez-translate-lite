@@ -521,42 +521,6 @@ async function handleCreation({ text, stream, requestId, sender, sendResponse })
 }
 
 // --- Ask 对话处理 ---
-function collectImageRefsFromMessages(messages, visionConfig) {
-    const refs = [];
-    const seen = new Set();
-    if (!visionConfig) return refs;
-    const imageUrls = extractImageUrlsFromMessages(messages);
-    imageUrls.forEach((url) => {
-        if (!url || seen.has(url)) return;
-        seen.add(url);
-        let entry = null;
-        for (const candidate of askImageCache.values()) {
-            if (candidate.sourceUrl === url) {
-                entry = candidate;
-                break;
-            }
-        }
-        if (entry) {
-            refs.push(entry.imageRef);
-            return;
-        }
-        // Not in cache yet: data URLs we can decode directly; http(s) we mark and let handleAsk fetch.
-        if (url.startsWith('data:')) {
-            const match = url.match(/^data:([^;]+);base64,(.+)$/);
-            if (match) {
-                const mime = match[1];
-                const base64 = match[2];
-                const imageRef = addImageEntry(url, mime, base64);
-                refs.push(imageRef);
-            }
-        } else {
-            // http(s) URL: ask handleAsk to fetch+cache it. Stash a placeholder.
-            refs.push({ pendingUrl: url });
-        }
-    });
-    return refs;
-}
-
 async function handleAsk({ messages, stream, requestId, sender, sendResponse }) {
     try {
         const storage = getStorage();
