@@ -1396,6 +1396,71 @@ function buildAskToolDefinitions() {
                     required: ['url']
                 }
             }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'ocr_image',
+                description: 'Extract every character of text from the attached image verbatim, in reading order. Do not translate or summarize.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        }
+                    },
+                    required: []
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'describe_image',
+                description: 'Objectively describe the attached image at the requested detail level.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        },
+                        detail: {
+                            type: 'string',
+                            enum: ['short', 'medium', 'long'],
+                            default: 'medium',
+                            description: 'Length of the description. short <= 60 CJK or 120 Latin chars; medium <= 180 CJK or 360 Latin chars; long <= 600 CJK or 1200 Latin chars.'
+                        }
+                    },
+                    required: []
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'answer_image',
+                description: 'Answer a question grounded solely in the attached image. Use this when the user asks something specific about the image and the answer requires new visual evidence.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        },
+                        question: {
+                            type: 'string',
+                            description: 'The question to answer based on the image.'
+                        },
+                        context: {
+                            type: 'string',
+                            description: 'Optional extra context or hints for the visual QA.'
+                        }
+                    },
+                    required: ['question']
+                }
+            }
         }
     ];
 }
