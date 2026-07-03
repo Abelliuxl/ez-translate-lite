@@ -102,6 +102,9 @@ const ASK_WEB_TOOLS_SYSTEM_PROMPT = [
 
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
 const askVisionAnalysisCache = new Map();
+const askImageCache = new Map();
+let askImageCacheCounter = 0;
+const ASK_IMAGE_CACHE_LIMIT = 8;
 const MAX_IMAGE_DATA_URL_BYTES = 6 * 1024 * 1024;
 
 function setupContextMenus() {
@@ -1526,6 +1529,27 @@ async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, mo
     }
 
     throw new Error('联网搜索工具调用次数过多，请缩小问题范围后重试');
+}
+
+function addImageEntry(sourceUrl, mime, base64) {
+    askImageCacheCounter += 1;
+    const imageRef = `image_${askImageCacheCounter}`;
+    if (askImageCache.size >= ASK_IMAGE_CACHE_LIMIT) {
+        const oldestKey = askImageCache.keys().next().value;
+        askImageCache.delete(oldestKey);
+    }
+    askImageCache.set(imageRef, {
+        imageRef,
+        sourceUrl,
+        mime,
+        base64,
+        cachedAt: Date.now()
+    });
+    return imageRef;
+}
+
+function getImageEntry(imageRef) {
+    return askImageCache.get(imageRef) || null;
 }
 
 function parseToolCallArguments(rawArgs) {
