@@ -140,7 +140,7 @@
                     <input type="checkbox" id="ask-vision-toggle">
                     图片 Ask 使用独立 Vision LLM 解析
                 </label>
-                <p class="hint">关闭时，图片会直接发送给 Ask LLM；开启时，先用下面选择的 Vision LLM 解析图片，再把解析结果交给 Ask LLM。</p>
+                <p class="hint">关闭时，图片会直接发送给 Ask LLM；开启时，图片会转为可在 Ask 对话中反复调用的 OCR / 描述 / 视觉问答工具（首轮自动注入 2 行简短描述保持冷启动体验）。仅在使用 OpenAI 兼容的 Ask LLM 时生效。</p>
             </div>
 
             <div class="form-group">

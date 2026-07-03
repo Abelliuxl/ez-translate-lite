@@ -100,8 +100,16 @@ const ASK_WEB_TOOLS_SYSTEM_PROMPT = [
     '默认短答，引用必要来源即可；不要把搜索结果整理成长篇报告，除非用户明确要求。'
 ].join('\n');
 
+const ASK_VISION_TOOL_SYSTEM_PROMPT = {
+    ocr: '按图中的阅读顺序逐字抽取所有可见文字。仅输出抽取到的文字本身，不要翻译、不要总结、不要加评论。保留原始换行。',
+    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。长度上限：short ≤ 60 CJK / 120 拉丁字符；medium ≤ 180 CJK / 360 拉丁字符；long ≤ 600 CJK / 1200 拉丁字符。遵守所请求的 detail 等级。',
+    answer: '你是视觉问答助手。回答必须完全基于图片中可见的内容。如果图片信息不足，回答「图片未提供足够信息」。不要猜测。'
+};
+
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
+const askImageCache = new Map();
+let askImageCacheCounter = 0;
+const ASK_IMAGE_CACHE_LIMIT = 8;
 const MAX_IMAGE_DATA_URL_BYTES = 6 * 1024 * 1024;
 
 function setupContextMenus() {
@@ -573,22 +581,119 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
 
         const hasImageInput = messagesContainImages(messages);
         let askMessages = messages;
+        let visionCtx = null;
+        let imageRefForTools = null;
 
         if (hasImageInput && settingsResult.askVisionEnabled === true) {
-            askMessages = await buildAskMessagesWithVisionAnalysis({
-                messages,
-                configs,
-                visionConfigId: settingsResult.askVisionConfigId,
-                onProgress: sendProgress
+            const visionConfig = configs.find(c => c.id === settingsResult.askVisionConfigId);
+            if (!visionConfig) {
+                sendResponse({ error: '图片 Ask 的 Vision LLM 配置不存在' });
+                return;
+            }
+            const resolvedVision = resolveConfigSettings(visionConfig);
+            const visionProviderConfig = PROVIDER_CONFIG[resolvedVision.currentProvider];
+            if (!visionProviderConfig || !isOpenAICompatibleApiFormat(visionProviderConfig.apiFormat)) {
+                sendResponse({ error: '独立 Vision LLM 解析目前仅支持 OpenAI-compatible 配置' });
+                return;
+            }
+            visionCtx = {
+                apiKey: resolvedVision.apiKey,
+                serverUrl: resolvedVision.serverUrl,
+                model: resolvedVision.selectedModel,
+                providerConfig: visionProviderConfig
+            };
+
+            // Cache every image URL in the messages, deduplicating against existing entries.
+            const imageUrls = extractImageUrlsFromMessages(messages);
+            for (const url of imageUrls) {
+                if (!url) continue;
+                let entry = null;
+                for (const candidate of askImageCache.values()) {
+                    if (candidate.sourceUrl === url) {
+                        entry = candidate;
+                        break;
+                    }
+                }
+                if (entry) {
+                    imageRefForTools = entry.imageRef;
+                    continue;
+                }
+                if (url.startsWith('data:')) {
+                    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+                    if (!match) continue;
+                    const mime = match[1];
+                    const base64 = match[2];
+                    imageRefForTools = addImageEntry(url, mime, base64);
+                } else {
+                    try {
+                        const dataUrl = await fetchImageAsDataUrl(url);
+                        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+                        if (!match) continue;
+                        imageRefForTools = addImageEntry(url, match[1], match[2]);
+                    } catch (error) {
+                        sendResponse({ error: `图片加载失败：${error.message || 'unknown'}` });
+                        return;
+                    }
+                }
+            }
+
+            // Strip image_url parts and replace with a textual note so the model can refer to the ref.
+            askMessages = (Array.isArray(messages) ? messages : []).map((message) => {
+                if (!Array.isArray(message?.content)) return message;
+                const text = extractTextFromStructuredContent(message.content);
+                const note = imageRefForTools
+                    ? `（图片已转为可调用的工具：${imageRefForTools}）`
+                    : '（图片已附带但未能缓存到 vision 工具）';
+                return { ...message, content: text ? `${text}\n${note}` : note };
             });
         } else if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
             sendResponse({ error: '图片 Ask 直接发送目前仅支持 OpenAI-compatible LLM；请在 Ask 设置中启用独立 Vision LLM 解析。' });
             return;
         }
 
-        const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const hasSearchConfig = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const useAskTools = hasSearchConfig || visionCtx !== null;
+        const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
+
+        // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
+        // "what is this?" still works without the model calling a tool.
+        // This runs in BOTH the tool-call path and the plain chat path; the model always
+        // sees a textual summary instead of a bare image_ref it cannot act on.
+        if (isFirstAskTurn && visionCtx && imageRefForTools) {
+            try {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
+                const entry = getImageEntry(imageRefForTools);
+                if (entry) {
+                    const brief = await callAskVisionTool({
+                        entry,
+                        system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                        userText: '请简略描述这张图片。',
+                        maxTokens: 400,
+                        apiKey: visionCtx.apiKey,
+                        serverUrl: visionCtx.serverUrl,
+                        providerConfig: visionCtx.providerConfig,
+                        model: visionCtx.model
+                    });
+                    if (brief && brief.content) {
+                        const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
+                        // Inject the summary into the LAST user message of the first turn
+                        // (not every user message, to avoid duplicating the summary).
+                        let injected = false;
+                        askMessages = askMessages.map((m) => {
+                            if (injected || m.role !== 'user') return m;
+                            injected = true;
+                            const text = extractTextFromStructuredContent(m.content);
+                            return { ...m, content: `图片背景：${summary}\n\n${text}` };
+                        });
+                    }
+                }
+            } catch (error) {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
+            }
+        }
+
         let result;
-        if (useSearchTools) {
+        if (useAskTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
@@ -601,6 +706,7 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
                 model: selectedModel,
                 messages: askMessages,
                 tavilyApiKey: settingsResult.askTavilyApiKey.trim(),
+                visionCtx,
                 onProgress: sendProgress
             });
         } else {
@@ -1218,77 +1324,11 @@ function extractTextFromStructuredContent(content) {
     }).filter(Boolean).join('\n');
 }
 
-async function buildAskMessagesWithVisionAnalysis({ messages, configs, visionConfigId, onProgress = null }) {
-    if (!visionConfigId) {
-        throw new Error('图片 Ask 已启用独立 Vision LLM，但未选择 Vision LLM 配置');
-    }
-
-    const visionConfig = configs.find(c => c.id === visionConfigId);
-    if (!visionConfig) {
-        throw new Error('图片 Ask 的 Vision LLM 配置不存在');
-    }
-
-    const resolved = resolveConfigSettings(visionConfig);
-    const providerConfig = PROVIDER_CONFIG[resolved.currentProvider];
-    if (!providerConfig) {
-        throw new Error(`未知的 Vision LLM 提供商: ${resolved.currentProvider}`);
-    }
-    if (!isOpenAICompatibleApiFormat(providerConfig.apiFormat)) {
-        throw new Error('独立 Vision LLM 解析目前仅支持 OpenAI-compatible 配置');
-    }
-    if (providerConfig.apiFormat !== 'ollama' && !resolved.apiKey) {
-        throw new Error(`${providerConfig.name} API密钥未配置`);
-    }
-    if ((providerConfig.apiFormat === 'custom-openai' || providerConfig.apiFormat === 'custom-anthropic') && !resolved.serverUrl) {
-        throw new Error(`${providerConfig.name} Base URL 未配置`);
-    }
-
-    const imageUrls = extractImageUrlsFromMessages(messages);
-    const promptText = (Array.isArray(messages) ? messages : [])
-        .map(m => extractTextFromStructuredContent(m.content))
-        .filter(Boolean)
-        .join('\n\n');
-    const cacheKey = `${visionConfigId}:${resolved.selectedModel}:${imageUrls.join('|')}`;
-    let analysis = askVisionAnalysisCache.get(cacheKey);
-    if (!analysis) {
-        if (onProgress) {
-            onProgress({ stage: 'tool_status', text: '正在解析图片', model: resolved.selectedModel });
-        }
-        analysis = await callOpenAICompatibleVisionAnalysis({
-            config: providerConfig,
-            apiKey: resolved.apiKey,
-            serverUrl: resolved.serverUrl,
-            model: resolved.selectedModel,
-            imageUrls,
-            promptText
-        });
-        askVisionAnalysisCache.set(cacheKey, analysis);
-        if (askVisionAnalysisCache.size > 20) {
-            const oldestKey = askVisionAnalysisCache.keys().next().value;
-            askVisionAnalysisCache.delete(oldestKey);
-        }
-    }
-
-    return (Array.isArray(messages) ? messages : []).map((message) => {
-        if (!Array.isArray(message.content)) return message;
-        const text = extractTextFromStructuredContent(message.content);
-        return {
-            ...message,
-            content: [
-                text,
-                '',
-                '图片解析（由 Vision LLM 生成）：',
-                analysis
-            ].filter(Boolean).join('\n')
-        };
-    });
-}
-
-async function callOpenAICompatibleVisionAnalysis({ config, apiKey, serverUrl, model, imageUrls, promptText }) {
-    const endpoints = getOpenAICompatibleVisionEndpoints(config, serverUrl, model);
+async function callAskVisionTool({ entry, system, userText, maxTokens, apiKey, serverUrl, providerConfig, model }) {
+    const endpoints = getOpenAICompatibleVisionEndpoints(providerConfig, serverUrl, model);
     let lastError = null;
 
-    for (let i = 0; i < endpoints.length; i++) {
+    for (let i = 0; i < endpoints.length; i += 1) {
         const endpoint = endpoints[i];
         try {
             const response = await fetch(endpoint, {
@@ -1297,44 +1337,38 @@ async function callOpenAICompatibleVisionAnalysis({ config, apiKey, serverUrl, m
                 body: JSON.stringify({
                     model,
                     messages: [
-                        {
-                            role: 'system',
-                            content: '你是图片解析助手。请客观、简洁地描述图片内容，提取可见文字、主体、关系、图表含义和对理解图片有帮助的上下文。不要替用户做最终结论，输出控制在 8 条以内。'
-                        },
+                        { role: 'system', content: system },
                         {
                             role: 'user',
                             content: [
-                                { type: 'text', text: `请解析这张图片，供后续 Ask LLM 使用。\n\n用户上下文：\n${promptText || '无'}` },
-                                ...imageUrls.map(url => ({ type: 'image_url', image_url: { url } }))
+                                { type: 'text', text: userText },
+                                { type: 'image_url', image_url: { url: `data:${entry.mime};base64,${entry.base64}` } }
                             ]
                         }
                     ],
-                    max_tokens: 1200,
+                    max_tokens: maxTokens,
                     temperature: 0.2,
                     stream: false
                 }),
                 credentials: 'omit'
             });
-
             if (!response.ok) {
-                const errorMessage = await extractErrorMessage(response, 'Vision LLM 图片解析失败');
+                const errorMessage = await extractErrorMessage(response, 'Vision 工具调用失败');
                 const requestError = new Error(errorMessage);
                 requestError.status = response.status;
                 throw requestError;
             }
-
             const data = await response.json();
             const text = sanitizeTranslationOutput(extractOpenAIFinalText(data)).trim();
             if (!text) throw new Error('Vision LLM 返回空内容');
-            return text;
+            return { content: text, model: (data.model || model || '').trim() };
         } catch (error) {
             lastError = error;
             if (error.status === 404 && i < endpoints.length - 1) continue;
             throw error;
         }
     }
-
-    throw lastError || new Error('Vision LLM 图片解析失败');
+    throw lastError || new Error('Vision 工具调用失败');
 }
 
 function buildOpenAICompatibleHeaders(endpoint, apiKey) {
@@ -1393,6 +1427,71 @@ function buildAskToolDefinitions() {
                     required: ['url']
                 }
             }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'ocr_image',
+                description: 'Extract every character of text from the attached image verbatim, in reading order. Do not translate or summarize.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        }
+                    },
+                    required: []
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'describe_image',
+                description: 'Objectively describe the attached image at the requested detail level.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        },
+                        detail: {
+                            type: 'string',
+                            enum: ['short', 'medium', 'long'],
+                            default: 'medium',
+                            description: 'Length of the description. short <= 60 CJK or 120 Latin chars; medium <= 180 CJK or 360 Latin chars; long <= 600 CJK or 1200 Latin chars.'
+                        }
+                    },
+                    required: []
+                }
+            }
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'answer_image',
+                description: 'Answer a question grounded solely in the attached image. Use this when the user asks something specific about the image and the answer requires new visual evidence.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        image_ref: {
+                            type: 'string',
+                            description: 'Optional. Image reference id (e.g. "image_1"). Defaults to the currently attached image.'
+                        },
+                        question: {
+                            type: 'string',
+                            description: 'The question to answer based on the image.'
+                        },
+                        context: {
+                            type: 'string',
+                            description: 'Optional extra context or hints for the visual QA.'
+                        }
+                    },
+                    required: ['question']
+                }
+            }
         }
     ];
 }
@@ -1418,7 +1517,7 @@ function normalizeAskMessagesForTools(messages) {
     ];
 }
 
-async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, model, messages, tavilyApiKey, onProgress = null }) {
+async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, model, messages, tavilyApiKey, visionCtx = null, onProgress = null }) {
     const endpoints = getOpenAICompatibleChatEndpoints(config, serverUrl, model);
     let lastError = null;
 
@@ -1430,6 +1529,7 @@ async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, mod
                 model,
                 messages,
                 tavilyApiKey,
+                visionCtx,
                 onProgress
             });
         } catch (error) {
@@ -1444,7 +1544,7 @@ async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, mod
     throw lastError || new Error('Ask 联网搜索请求失败');
 }
 
-async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, model, messages, tavilyApiKey, onProgress = null }) {
+async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, model, messages, tavilyApiKey, visionCtx = null, onProgress = null }) {
     const headers = buildOpenAICompatibleHeaders(endpoint, apiKey);
     const conversation = normalizeAskMessagesForTools(messages);
     const tools = buildAskToolDefinitions();
@@ -1513,7 +1613,8 @@ async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, mo
                 args,
                 tavilyApiKey,
                 toolState,
-                emitToolStatus
+                emitToolStatus,
+                visionCtx
             });
 
             conversation.push({
@@ -1528,6 +1629,27 @@ async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, mo
     throw new Error('联网搜索工具调用次数过多，请缩小问题范围后重试');
 }
 
+function addImageEntry(sourceUrl, mime, base64) {
+    askImageCacheCounter += 1;
+    const imageRef = `image_${askImageCacheCounter}`;
+    if (askImageCache.size >= ASK_IMAGE_CACHE_LIMIT) {
+        const oldestKey = askImageCache.keys().next().value;
+        askImageCache.delete(oldestKey);
+    }
+    askImageCache.set(imageRef, {
+        imageRef,
+        sourceUrl,
+        mime,
+        base64,
+        cachedAt: Date.now()
+    });
+    return imageRef;
+}
+
+function getImageEntry(imageRef) {
+    return askImageCache.get(imageRef) || null;
+}
+
 function parseToolCallArguments(rawArgs) {
     if (!rawArgs || typeof rawArgs !== 'string') return {};
     try {
@@ -1538,7 +1660,7 @@ function parseToolCallArguments(rawArgs) {
     }
 }
 
-async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToolStatus }) {
+async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToolStatus, visionCtx = null }) {
     if (toolName === 'tavily_search') {
         if (toolState.searches >= ASK_TOOL_LIMITS.maxSearches) {
             return { error: `搜索次数已达上限 ${ASK_TOOL_LIMITS.maxSearches}` };
@@ -1559,6 +1681,81 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
         const url = String(args.url || '').trim();
         emitToolStatus(`正在打开网页：${url}`);
         return await fetchReadableWebPage(url);
+    }
+
+    if (toolName === 'ocr_image' || toolName === 'describe_image' || toolName === 'answer_image') {
+        if (!visionCtx) {
+            return { error: '当前会话没有附带图片' };
+        }
+        const { apiKey, serverUrl, model, providerConfig } = visionCtx;
+        const imageRef = String(args.image_ref || 'image_1');
+        const entry = getImageEntry(imageRef);
+        if (!entry) {
+            return { error: '图片已失效，请重新附带' };
+        }
+        if (toolName === 'answer_image') {
+            const question = String(args.question || '').trim();
+            if (!question) return { error: '缺少问题' };
+            const context = String(args.context || '').trim();
+            emitToolStatus(`正在针对图片回答问题：${question}`);
+            try {
+                const userText = context ? `${question}\n\n上下文：${context}` : question;
+                const result = await callAskVisionTool({
+                    entry,
+                    system: ASK_VISION_TOOL_SYSTEM_PROMPT.answer,
+                    userText,
+                    maxTokens: 800,
+                    apiKey,
+                    serverUrl,
+                    providerConfig,
+                    model
+                });
+                return { ...result, mode: 'answer' };
+            } catch (error) {
+                return { error: error.message || 'Vision 工具调用失败' };
+            }
+        }
+        if (toolName === 'ocr_image') {
+            emitToolStatus('正在 OCR 图片');
+            try {
+                const result = await callAskVisionTool({
+                    entry,
+                    system: ASK_VISION_TOOL_SYSTEM_PROMPT.ocr,
+                    userText: '请抽取图中的全部文字。',
+                    maxTokens: 1500,
+                    apiKey,
+                    serverUrl,
+                    providerConfig,
+                    model
+                });
+                return { ...result, mode: 'ocr' };
+            } catch (error) {
+                return { error: error.message || 'Vision 工具调用失败' };
+            }
+        }
+        // describe_image
+        const detail = ['short', 'medium', 'long'].includes(args.detail) ? args.detail : 'medium';
+        const detailHint = {
+            short: '请简略描述这张图片。',
+            medium: '请详细描述这张图片。',
+            long: '请尽可能详尽地描述这张图片中的所有可见元素。'
+        }[detail];
+        emitToolStatus(`正在描述图片（${detail}）`);
+        try {
+            const result = await callAskVisionTool({
+                entry,
+                system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                userText: detailHint,
+                maxTokens: detail === 'long' ? 1500 : 800,
+                apiKey,
+                serverUrl,
+                providerConfig,
+                model
+            });
+            return { ...result, mode: 'describe' };
+        } catch (error) {
+            return { error: error.message || 'Vision 工具调用失败' };
+        }
     }
 
     return { error: `未知工具: ${toolName || 'unknown'}` };

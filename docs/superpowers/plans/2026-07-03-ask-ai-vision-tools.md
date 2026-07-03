@@ -20,7 +20,7 @@
 |---|---|---|
 | `src/background/background.js` | Modify | Add `askImageCache`, three new tool definitions, three new `executeAskTool` branches, cold-start describe call, image-stripping pass. |
 | `src/settings/settings.html` | Modify | Update the `askVisionEnabled` hint copy (one paragraph). |
-| `src/manifest.json` | Modify | Bump version 2.1.2 → 2.2.0. |
+| `manifest.json` | Modify | Bump version 2.1.2 → 2.2.0 (file is at the repo root). |
 
 No new files. No new dependencies. No settings additions.
 
@@ -29,15 +29,14 @@ No new files. No new dependencies. No settings additions.
 ## Task 1: Add `askImageCache` module-level state
 
 **Files:**
-- Modify: `src/background/background.js:103-105` (just below `askVisionAnalysisCache`)
+- Modify: `src/background/background.js:103-105` (near the `askImageCache` declaration)
 
-- [ ] **Step 1: Add the cache + counter next to the existing `askVisionAnalysisCache`**
+- [ ] **Step 1: Add the cache + counter near the existing `askImageCache` block**
 
 In `src/background/background.js`, find the existing block:
 
 ```js
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
 const MAX_IMAGE_DATA_URL_BYTES = 6 * 1024 * 1024;
 ```
 
@@ -45,7 +44,6 @@ Replace it with:
 
 ```js
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
 const askImageCache = new Map();
 let askImageCacheCounter = 0;
 const ASK_IMAGE_CACHE_LIMIT = 8;
@@ -235,12 +233,12 @@ Insert directly below it:
 ```js
 const ASK_VISION_TOOL_SYSTEM_PROMPT = {
     ocr: '按图中的阅读顺序逐字抽取所有可见文字。仅输出抽取到的文字本身，不要翻译、不要总结、不要加评论。保留原始换行。',
-    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。',
+    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。长度上限：short ≤ 60 CJK / 120 拉丁字符；medium ≤ 180 CJK / 360 拉丁字符；long ≤ 600 CJK / 1200 拉丁字符。遵守所请求的 detail 等级。',
     answer: '你是视觉问答助手。回答必须完全基于图片中可见的内容。如果图片信息不足，回答「图片未提供足够信息」。不要猜测。'
 };
 ```
 
-- [ ] **Step 2: Add a helper `callAskVisionTool` near `callOpenAICompatibleVisionAnalysis` (around line 1287) for the three tools' shared network call**
+- [ ] **Step 2: Add a helper `callAskVisionTool` for the three tools' shared network call**
 
 Insert the following function directly above `function buildOpenAICompatibleHeaders`:
 
@@ -477,14 +475,7 @@ Find the block:
         const hasImageInput = messagesContainImages(messages);
         let askMessages = messages;
 
-        if (hasImageInput && settingsResult.askVisionEnabled === true) {
-            askMessages = await buildAskMessagesWithVisionAnalysis({
-                messages,
-                configs,
-                visionConfigId: settingsResult.askVisionConfigId,
-                onProgress: sendProgress
-            });
-        } else if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
+        if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
             sendResponse({ error: '图片 Ask 直接发送目前仅支持 OpenAI-compatible LLM；请在 Ask 设置中启用独立 Vision LLM 解析。' });
             return;
         }
@@ -494,7 +485,7 @@ Replace it with the new logic that:
 - Resolves the vision config
 - Caches the image (data URLs synchronously, http(s) via `fetchImageAsDataUrl`)
 - Strips `image_url` parts
-- If `useSearchTools` (Ask LLM is OpenAI-compatible AND search enabled), pre-injects a 2-line `describe_image(short)` summary; otherwise falls back to the legacy pre-analysis path
+- **Tool exposure gate:** the Ask LLM gets the 5 tools (tavily_search, web_fetch, ocr_image, describe_image, answer_image) whenever `useAskTools = hasSearchConfig || visionCtx !== null`. The plain `callChatAPI` path runs only when neither search nor vision is configured. Cold-start summary runs regardless.
 
 ```js
         const hasImageInput = messagesContainImages(messages);
@@ -570,7 +561,11 @@ Replace it with the new logic that:
         }
 ```
 
-- [ ] **Step 3: Update the tool-call branch to pass `visionCtx` and inject the cold-start summary**
+- [ ] **Step 3: Hoist the cold-start summary block and pass `visionCtx` into the tool-call branch**
+
+**Important:** The cold-start summary MUST run regardless of `useAskTools`, so it is hoisted out of the `if (useAskTools)` branch. Otherwise the spec §4.4 promise ("Cold-start preserved. First turn still injects a 2-line `describe(short)` summary so 'what is this?' still works without the model calling a tool.") is broken in the non-tool path: the Ask LLM receives stripped messages (image gone) with no textual anchor and emits a confused "I don't see an image" reply.
+
+The summary is also injected into the **last** user message only (using an `injected` flag), not every user message, to avoid duplicating the summary across messages.
 
 Find:
 
@@ -592,49 +587,58 @@ Find:
                 tavilyApiKey: settingsResult.askTavilyApiKey.trim(),
                 onProgress: sendProgress
             });
+        }
 ```
 
 Replace with:
 
 ```js
-        const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const hasSearchConfig = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const useAskTools = hasSearchConfig || visionCtx !== null;
         const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
+
+        // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
+        // "what is this?" still works without the model calling a tool.
+        // This runs in BOTH the tool-call path and the plain chat path; the model always
+        // sees a textual summary instead of a bare image_ref it cannot act on.
+        if (isFirstAskTurn && visionCtx && imageRefForTools) {
+            try {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
+                const entry = getImageEntry(imageRefForTools);
+                if (entry) {
+                    const brief = await callAskVisionTool({
+                        entry,
+                        system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                        userText: '请简略描述这张图片。',
+                        maxTokens: 400,
+                        apiKey: visionCtx.apiKey,
+                        serverUrl: visionCtx.serverUrl,
+                        providerConfig: visionCtx.providerConfig,
+                        model: visionCtx.model
+                    });
+                    if (brief && brief.content) {
+                        const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
+                        // Inject the summary into the LAST user message of the first turn
+                        // (not every user message, to avoid duplicating the summary).
+                        let injected = false;
+                        askMessages = askMessages.map((m) => {
+                            if (injected || m.role !== 'user') return m;
+                            injected = true;
+                            const text = extractTextFromStructuredContent(m.content);
+                            return { ...m, content: `图片背景：${summary}\n\n${text}` };
+                        });
+                    }
+                }
+            } catch (error) {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
+            }
+        }
+
         let result;
-        if (useSearchTools) {
+        if (useAskTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
-            }
-
-            // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
-            // "what is this?" still works without the model calling a tool.
-            if (isFirstAskTurn && visionCtx && imageRefForTools) {
-                try {
-                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
-                    const entry = getImageEntry(imageRefForTools);
-                    if (entry) {
-                        const brief = await callAskVisionTool({
-                            entry,
-                            system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
-                            userText: '请简略描述这张图片。',
-                            maxTokens: 400,
-                            apiKey: visionCtx.apiKey,
-                            serverUrl: visionCtx.serverUrl,
-                            providerConfig: visionCtx.providerConfig,
-                            model: visionCtx.model
-                        });
-                        if (brief && brief.content) {
-                            const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
-                            askMessages = askMessages.map((m, idx) => {
-                                if (idx === 0 || m.role !== 'user') return m;
-                                const text = extractTextFromStructuredContent(m.content);
-                                return { ...m, content: `图片背景：${summary}\n\n${text}` };
-                            });
-                        }
-                    }
-                } catch (error) {
-                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
-                }
             }
 
             result = await callOpenAICompatibleAskWithTools({
@@ -752,7 +756,7 @@ git commit -m "feat(ask): wire askImageCache, image_url stripping, and cold-star
 
 **Files:**
 - Modify: `src/settings/settings.html:140-143` (hint copy under the `ask-vision-toggle` checkbox)
-- Modify: `src/manifest.json` (version field, line 4)
+- Modify: `manifest.json` (version field, line 4 — file is at the repo root, not under `src/`)
 
 - [ ] **Step 1: Replace the hint copy in `settings.html`**
 
@@ -778,7 +782,7 @@ Replace with:
 
 - [ ] **Step 2: Bump manifest version**
 
-In `src/manifest.json`, change:
+In `manifest.json`, change:
 
 ```json
   "version": "2.1.2",
@@ -793,7 +797,7 @@ to:
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/settings/settings.html src/manifest.json
+git add src/settings/settings.html manifest.json
 git commit -m "chore(ask): document vision tools in settings hint and bump to 2.2.0"
 ```
 
@@ -880,3 +884,5 @@ git push origin v2.2.0
 - [x] **Type consistency:** `visionCtx` is defined in Task 4 Step 2, passed in Task 4 Step 5, consumed in Task 3 Step 3 — names and shape match.
 - [x] **ImageEntry fields** match between Task 1 (`addImageEntry` writer) and Task 3 Step 2 (`callAskVisionTool` reader: uses `entry.mime`, `entry.base64`).
 - [x] **Function signatures** `callOpenAICompatibleAskWithTools` and `...AtEndpoint` are updated once each in Task 4 Step 5.
+- [x] **Cold-start scope (regression I-1):** The cold-start summary block is hoisted out of the `if (useAskTools)` branch so it runs in BOTH the tool-call path and the plain `callChatAPI` path. Without this, `useAskTools=false` would strip the image and never inject the summary, breaking spec §4.4 in the non-tool Ask path.
+- [x] **Cold-start injection (M-1):** The summary is injected into the **last** user message of the first turn only (via `injected` flag), not every user message — avoids duplicating the summary if there are multiple user messages.
