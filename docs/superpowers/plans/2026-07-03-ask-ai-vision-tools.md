@@ -20,7 +20,7 @@
 |---|---|---|
 | `src/background/background.js` | Modify | Add `askImageCache`, three new tool definitions, three new `executeAskTool` branches, cold-start describe call, image-stripping pass. |
 | `src/settings/settings.html` | Modify | Update the `askVisionEnabled` hint copy (one paragraph). |
-| `src/manifest.json` | Modify | Bump version 2.1.2 → 2.2.0. |
+| `manifest.json` | Modify | Bump version 2.1.2 → 2.2.0 (file is at the repo root). |
 
 No new files. No new dependencies. No settings additions.
 
@@ -752,7 +752,7 @@ git commit -m "feat(ask): wire askImageCache, image_url stripping, and cold-star
 
 **Files:**
 - Modify: `src/settings/settings.html:140-143` (hint copy under the `ask-vision-toggle` checkbox)
-- Modify: `src/manifest.json` (version field, line 4)
+- Modify: `manifest.json` (version field, line 4 — file is at the repo root, not under `src/`)
 
 - [ ] **Step 1: Replace the hint copy in `settings.html`**
 
@@ -778,7 +778,7 @@ Replace with:
 
 - [ ] **Step 2: Bump manifest version**
 
-In `src/manifest.json`, change:
+In `manifest.json`, change:
 
 ```json
   "version": "2.1.2",
@@ -793,7 +793,7 @@ to:
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/settings/settings.html src/manifest.json
+git add src/settings/settings.html manifest.json
 git commit -m "chore(ask): document vision tools in settings hint and bump to 2.2.0"
 ```
 
