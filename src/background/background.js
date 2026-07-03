@@ -102,7 +102,7 @@ const ASK_WEB_TOOLS_SYSTEM_PROMPT = [
 
 const ASK_VISION_TOOL_SYSTEM_PROMPT = {
     ocr: '按图中的阅读顺序逐字抽取所有可见文字。仅输出抽取到的文字本身，不要翻译、不要总结、不要加评论。保留原始换行。',
-    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。',
+    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。长度上限：short ≤ 60 CJK / 120 拉丁字符；medium ≤ 180 CJK / 360 拉丁字符；long ≤ 600 CJK / 1200 拉丁字符。遵守所请求的 detail 等级。',
     answer: '你是视觉问答助手。回答必须完全基于图片中可见的内容。如果图片信息不足，回答「图片未提供足够信息」。不要猜测。'
 };
 
@@ -1705,7 +1705,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
 
     if (toolName === 'ocr_image' || toolName === 'describe_image' || toolName === 'answer_image') {
         if (!visionCtx) {
-            return { error: '当前 Ask LLM 未启用独立 Vision 工具' };
+            return { error: '当前会话没有附带图片' };
         }
         const { apiKey, serverUrl, model, providerConfig } = visionCtx;
         const imageRef = String(args.image_ref || 'image_1');
@@ -1720,7 +1720,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
             emitToolStatus(`正在针对图片回答问题：${question}`);
             try {
                 const userText = context ? `${question}\n\n上下文：${context}` : question;
-                return await callAskVisionTool({
+                const result = await callAskVisionTool({
                     entry,
                     system: ASK_VISION_TOOL_SYSTEM_PROMPT.answer,
                     userText,
@@ -1730,6 +1730,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
                     providerConfig,
                     model
                 });
+                return { ...result, mode: 'answer' };
             } catch (error) {
                 return { error: error.message || 'Vision 工具调用失败' };
             }
@@ -1737,7 +1738,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
         if (toolName === 'ocr_image') {
             emitToolStatus('正在 OCR 图片');
             try {
-                return await callAskVisionTool({
+                const result = await callAskVisionTool({
                     entry,
                     system: ASK_VISION_TOOL_SYSTEM_PROMPT.ocr,
                     userText: '请抽取图中的全部文字。',
@@ -1747,6 +1748,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
                     providerConfig,
                     model
                 });
+                return { ...result, mode: 'ocr' };
             } catch (error) {
                 return { error: error.message || 'Vision 工具调用失败' };
             }
@@ -1760,7 +1762,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
         }[detail];
         emitToolStatus(`正在描述图片（${detail}）`);
         try {
-            return await callAskVisionTool({
+            const result = await callAskVisionTool({
                 entry,
                 system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
                 userText: detailHint,
@@ -1770,6 +1772,7 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
                 providerConfig,
                 model
             });
+            return { ...result, mode: 'describe' };
         } catch (error) {
             return { error: error.message || 'Vision 工具调用失败' };
         }
