@@ -521,6 +521,42 @@ async function handleCreation({ text, stream, requestId, sender, sendResponse })
 }
 
 // --- Ask 对话处理 ---
+function collectImageRefsFromMessages(messages, visionConfig) {
+    const refs = [];
+    const seen = new Set();
+    if (!visionConfig) return refs;
+    const imageUrls = extractImageUrlsFromMessages(messages);
+    imageUrls.forEach((url) => {
+        if (!url || seen.has(url)) return;
+        seen.add(url);
+        let entry = null;
+        for (const candidate of askImageCache.values()) {
+            if (candidate.sourceUrl === url) {
+                entry = candidate;
+                break;
+            }
+        }
+        if (entry) {
+            refs.push(entry.imageRef);
+            return;
+        }
+        // Not in cache yet: data URLs we can decode directly; http(s) we mark and let handleAsk fetch.
+        if (url.startsWith('data:')) {
+            const match = url.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+                const mime = match[1];
+                const base64 = match[2];
+                const imageRef = addImageEntry(url, mime, base64);
+                refs.push(imageRef);
+            }
+        } else {
+            // http(s) URL: ask handleAsk to fetch+cache it. Stash a placeholder.
+            refs.push({ pendingUrl: url });
+        }
+    });
+    return refs;
+}
+
 async function handleAsk({ messages, stream, requestId, sender, sendResponse }) {
     try {
         const storage = getStorage();
@@ -582,13 +618,70 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
 
         const hasImageInput = messagesContainImages(messages);
         let askMessages = messages;
+        let visionCtx = null;
+        let imageRefForTools = null;
 
         if (hasImageInput && settingsResult.askVisionEnabled === true) {
-            askMessages = await buildAskMessagesWithVisionAnalysis({
-                messages,
-                configs,
-                visionConfigId: settingsResult.askVisionConfigId,
-                onProgress: sendProgress
+            const visionConfig = configs.find(c => c.id === settingsResult.askVisionConfigId);
+            if (!visionConfig) {
+                sendResponse({ error: '图片 Ask 的 Vision LLM 配置不存在' });
+                return;
+            }
+            const resolvedVision = resolveConfigSettings(visionConfig);
+            const visionProviderConfig = PROVIDER_CONFIG[resolvedVision.currentProvider];
+            if (!visionProviderConfig || !isOpenAICompatibleApiFormat(visionProviderConfig.apiFormat)) {
+                sendResponse({ error: '独立 Vision LLM 解析目前仅支持 OpenAI-compatible 配置' });
+                return;
+            }
+            visionCtx = {
+                apiKey: resolvedVision.apiKey,
+                serverUrl: resolvedVision.serverUrl,
+                model: resolvedVision.selectedModel,
+                providerConfig: visionProviderConfig
+            };
+
+            // Cache every image URL in the messages, deduplicating against existing entries.
+            const imageUrls = extractImageUrlsFromMessages(messages);
+            for (const url of imageUrls) {
+                if (!url) continue;
+                let entry = null;
+                for (const candidate of askImageCache.values()) {
+                    if (candidate.sourceUrl === url) {
+                        entry = candidate;
+                        break;
+                    }
+                }
+                if (entry) {
+                    imageRefForTools = entry.imageRef;
+                    continue;
+                }
+                if (url.startsWith('data:')) {
+                    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+                    if (!match) continue;
+                    const mime = match[1];
+                    const base64 = match[2];
+                    imageRefForTools = addImageEntry(url, mime, base64);
+                } else {
+                    try {
+                        const dataUrl = await fetchImageAsDataUrl(url);
+                        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+                        if (!match) continue;
+                        imageRefForTools = addImageEntry(url, match[1], match[2]);
+                    } catch (error) {
+                        sendResponse({ error: `图片加载失败：${error.message || 'unknown'}` });
+                        return;
+                    }
+                }
+            }
+
+            // Strip image_url parts and replace with a textual note so the model can refer to the ref.
+            askMessages = (Array.isArray(messages) ? messages : []).map((message) => {
+                if (!Array.isArray(message?.content)) return message;
+                const text = extractTextFromStructuredContent(message.content);
+                const note = imageRefForTools
+                    ? `（图片已转为可调用的工具：${imageRefForTools}）`
+                    : '（图片已附带但未能缓存到 vision 工具）';
+                return { ...message, content: text ? `${text}\n${note}` : note };
             });
         } else if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
             sendResponse({ error: '图片 Ask 直接发送目前仅支持 OpenAI-compatible LLM；请在 Ask 设置中启用独立 Vision LLM 解析。' });
@@ -596,11 +689,43 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
         }
 
         const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
         let result;
         if (useSearchTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
+            }
+
+            // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
+            // "what is this?" still works without the model calling a tool.
+            if (isFirstAskTurn && visionCtx && imageRefForTools) {
+                try {
+                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
+                    const entry = getImageEntry(imageRefForTools);
+                    if (entry) {
+                        const brief = await callAskVisionTool({
+                            entry,
+                            system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                            userText: '请简略描述这张图片。',
+                            maxTokens: 400,
+                            apiKey: visionCtx.apiKey,
+                            serverUrl: visionCtx.serverUrl,
+                            providerConfig: visionCtx.providerConfig,
+                            model: visionCtx.model
+                        });
+                        if (brief && brief.content) {
+                            const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
+                            askMessages = askMessages.map((m, idx) => {
+                                if (idx === 0 || m.role !== 'user') return m;
+                                const text = extractTextFromStructuredContent(m.content);
+                                return { ...m, content: `图片背景：${summary}\n\n${text}` };
+                            });
+                        }
+                    }
+                } catch (error) {
+                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
+                }
             }
 
             result = await callOpenAICompatibleAskWithTools({
@@ -610,6 +735,7 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
                 model: selectedModel,
                 messages: askMessages,
                 tavilyApiKey: settingsResult.askTavilyApiKey.trim(),
+                visionCtx,
                 onProgress: sendProgress
             });
         } else {
@@ -1539,7 +1665,7 @@ function normalizeAskMessagesForTools(messages) {
     ];
 }
 
-async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, model, messages, tavilyApiKey, onProgress = null }) {
+async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, model, messages, tavilyApiKey, visionCtx = null, onProgress = null }) {
     const endpoints = getOpenAICompatibleChatEndpoints(config, serverUrl, model);
     let lastError = null;
 
@@ -1551,6 +1677,7 @@ async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, mod
                 model,
                 messages,
                 tavilyApiKey,
+                visionCtx,
                 onProgress
             });
         } catch (error) {
@@ -1565,7 +1692,7 @@ async function callOpenAICompatibleAskWithTools({ config, apiKey, serverUrl, mod
     throw lastError || new Error('Ask 联网搜索请求失败');
 }
 
-async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, model, messages, tavilyApiKey, onProgress = null }) {
+async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, model, messages, tavilyApiKey, visionCtx = null, onProgress = null }) {
     const headers = buildOpenAICompatibleHeaders(endpoint, apiKey);
     const conversation = normalizeAskMessagesForTools(messages);
     const tools = buildAskToolDefinitions();
@@ -1634,7 +1761,8 @@ async function callOpenAICompatibleAskWithToolsAtEndpoint({ endpoint, apiKey, mo
                 args,
                 tavilyApiKey,
                 toolState,
-                emitToolStatus
+                emitToolStatus,
+                visionCtx
             });
 
             conversation.push({
