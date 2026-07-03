@@ -570,7 +570,11 @@ Replace it with the new logic that:
         }
 ```
 
-- [ ] **Step 3: Update the tool-call branch to pass `visionCtx` and inject the cold-start summary**
+- [ ] **Step 3: Hoist the cold-start summary block and pass `visionCtx` into the tool-call branch**
+
+**Important:** The cold-start summary MUST run regardless of `useSearchTools`, so it is hoisted out of the `if (useSearchTools)` branch. Otherwise the spec §4.4 promise ("Cold-start preserved. First turn still injects a 2-line `describe(short)` summary so 'what is this?' still works without the model calling a tool.") is broken in the non-search path: the Ask LLM receives stripped messages (image gone) with no textual anchor and emits a confused "I don't see an image" reply.
+
+The summary is also injected into the **last** user message only (using an `injected` flag), not every user message, to avoid duplicating the summary across messages.
 
 Find:
 
@@ -599,42 +603,49 @@ Replace with:
 ```js
         const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
         const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
+
+        // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
+        // "what is this?" still works without the model calling a tool.
+        // This runs in BOTH the tool-call path and the plain chat path; the model always
+        // sees a textual summary instead of a bare image_ref it cannot act on.
+        if (isFirstAskTurn && visionCtx && imageRefForTools) {
+            try {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
+                const entry = getImageEntry(imageRefForTools);
+                if (entry) {
+                    const brief = await callAskVisionTool({
+                        entry,
+                        system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                        userText: '请简略描述这张图片。',
+                        maxTokens: 400,
+                        apiKey: visionCtx.apiKey,
+                        serverUrl: visionCtx.serverUrl,
+                        providerConfig: visionCtx.providerConfig,
+                        model: visionCtx.model
+                    });
+                    if (brief && brief.content) {
+                        const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
+                        // Inject the summary into the LAST user message of the first turn
+                        // (not every user message, to avoid duplicating the summary).
+                        let injected = false;
+                        askMessages = askMessages.map((m) => {
+                            if (injected || m.role !== 'user') return m;
+                            injected = true;
+                            const text = extractTextFromStructuredContent(m.content);
+                            return { ...m, content: `图片背景：${summary}\n\n${text}` };
+                        });
+                    }
+                }
+            } catch (error) {
+                if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
+            }
+        }
+
         let result;
         if (useSearchTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
-            }
-
-            // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
-            // "what is this?" still works without the model calling a tool.
-            if (isFirstAskTurn && visionCtx && imageRefForTools) {
-                try {
-                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '正在解析图片', model: visionCtx.model });
-                    const entry = getImageEntry(imageRefForTools);
-                    if (entry) {
-                        const brief = await callAskVisionTool({
-                            entry,
-                            system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
-                            userText: '请简略描述这张图片。',
-                            maxTokens: 400,
-                            apiKey: visionCtx.apiKey,
-                            serverUrl: visionCtx.serverUrl,
-                            providerConfig: visionCtx.providerConfig,
-                            model: visionCtx.model
-                        });
-                        if (brief && brief.content) {
-                            const summary = brief.content.length > 200 ? `${brief.content.slice(0, 200)}…` : brief.content;
-                            askMessages = askMessages.map((m, idx) => {
-                                if (idx === 0 || m.role !== 'user') return m;
-                                const text = extractTextFromStructuredContent(m.content);
-                                return { ...m, content: `图片背景：${summary}\n\n${text}` };
-                            });
-                        }
-                    }
-                } catch (error) {
-                    if (sendProgress) sendProgress({ stage: 'tool_status', text: '图片冷启动描述失败', model: visionCtx.model });
-                }
             }
 
             result = await callOpenAICompatibleAskWithTools({
@@ -880,3 +891,5 @@ git push origin v2.2.0
 - [x] **Type consistency:** `visionCtx` is defined in Task 4 Step 2, passed in Task 4 Step 5, consumed in Task 3 Step 3 — names and shape match.
 - [x] **ImageEntry fields** match between Task 1 (`addImageEntry` writer) and Task 3 Step 2 (`callAskVisionTool` reader: uses `entry.mime`, `entry.base64`).
 - [x] **Function signatures** `callOpenAICompatibleAskWithTools` and `...AtEndpoint` are updated once each in Task 4 Step 5.
+- [x] **Cold-start scope (regression I-1):** The cold-start summary block is hoisted out of the `if (useSearchTools)` branch so it runs in BOTH the search path and the plain `callChatAPI` path. Without this, `useSearchTools=false` would strip the image and never inject the summary, breaking spec §4.4 in non-search Ask.
+- [x] **Cold-start injection (M-1):** The summary is injected into the **last** user message of the first turn only (via `injected` flag), not every user message — avoids duplicating the summary if there are multiple user messages.
