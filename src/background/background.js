@@ -107,7 +107,6 @@ const ASK_VISION_TOOL_SYSTEM_PROMPT = {
 };
 
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
 const askImageCache = new Map();
 let askImageCacheCounter = 0;
 const ASK_IMAGE_CACHE_LIMIT = 8;
@@ -652,7 +651,8 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
             return;
         }
 
-        const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const hasSearchConfig = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const useAskTools = hasSearchConfig || visionCtx !== null;
         const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
 
         // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
@@ -693,7 +693,7 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
         }
 
         let result;
-        if (useSearchTools) {
+        if (useAskTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
@@ -1322,125 +1322,6 @@ function extractTextFromStructuredContent(content) {
         if (typeof part.content === 'string') return part.content;
         return '';
     }).filter(Boolean).join('\n');
-}
-
-async function buildAskMessagesWithVisionAnalysis({ messages, configs, visionConfigId, onProgress = null }) {
-    if (!visionConfigId) {
-        throw new Error('图片 Ask 已启用独立 Vision LLM，但未选择 Vision LLM 配置');
-    }
-
-    const visionConfig = configs.find(c => c.id === visionConfigId);
-    if (!visionConfig) {
-        throw new Error('图片 Ask 的 Vision LLM 配置不存在');
-    }
-
-    const resolved = resolveConfigSettings(visionConfig);
-    const providerConfig = PROVIDER_CONFIG[resolved.currentProvider];
-    if (!providerConfig) {
-        throw new Error(`未知的 Vision LLM 提供商: ${resolved.currentProvider}`);
-    }
-    if (!isOpenAICompatibleApiFormat(providerConfig.apiFormat)) {
-        throw new Error('独立 Vision LLM 解析目前仅支持 OpenAI-compatible 配置');
-    }
-    if (providerConfig.apiFormat !== 'ollama' && !resolved.apiKey) {
-        throw new Error(`${providerConfig.name} API密钥未配置`);
-    }
-    if ((providerConfig.apiFormat === 'custom-openai' || providerConfig.apiFormat === 'custom-anthropic') && !resolved.serverUrl) {
-        throw new Error(`${providerConfig.name} Base URL 未配置`);
-    }
-
-    const imageUrls = extractImageUrlsFromMessages(messages);
-    const promptText = (Array.isArray(messages) ? messages : [])
-        .map(m => extractTextFromStructuredContent(m.content))
-        .filter(Boolean)
-        .join('\n\n');
-    const cacheKey = `${visionConfigId}:${resolved.selectedModel}:${imageUrls.join('|')}`;
-    let analysis = askVisionAnalysisCache.get(cacheKey);
-    if (!analysis) {
-        if (onProgress) {
-            onProgress({ stage: 'tool_status', text: '正在解析图片', model: resolved.selectedModel });
-        }
-        analysis = await callOpenAICompatibleVisionAnalysis({
-            config: providerConfig,
-            apiKey: resolved.apiKey,
-            serverUrl: resolved.serverUrl,
-            model: resolved.selectedModel,
-            imageUrls,
-            promptText
-        });
-        askVisionAnalysisCache.set(cacheKey, analysis);
-        if (askVisionAnalysisCache.size > 20) {
-            const oldestKey = askVisionAnalysisCache.keys().next().value;
-            askVisionAnalysisCache.delete(oldestKey);
-        }
-    }
-
-    return (Array.isArray(messages) ? messages : []).map((message) => {
-        if (!Array.isArray(message.content)) return message;
-        const text = extractTextFromStructuredContent(message.content);
-        return {
-            ...message,
-            content: [
-                text,
-                '',
-                '图片解析（由 Vision LLM 生成）：',
-                analysis
-            ].filter(Boolean).join('\n')
-        };
-    });
-}
-
-async function callOpenAICompatibleVisionAnalysis({ config, apiKey, serverUrl, model, imageUrls, promptText }) {
-    const endpoints = getOpenAICompatibleVisionEndpoints(config, serverUrl, model);
-    let lastError = null;
-
-    for (let i = 0; i < endpoints.length; i++) {
-        const endpoint = endpoints[i];
-        try {
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: buildOpenAICompatibleHeaders(endpoint, apiKey),
-                body: JSON.stringify({
-                    model,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: '你是图片解析助手。请客观、简洁地描述图片内容，提取可见文字、主体、关系、图表含义和对理解图片有帮助的上下文。不要替用户做最终结论，输出控制在 8 条以内。'
-                        },
-                        {
-                            role: 'user',
-                            content: [
-                                { type: 'text', text: `请解析这张图片，供后续 Ask LLM 使用。\n\n用户上下文：\n${promptText || '无'}` },
-                                ...imageUrls.map(url => ({ type: 'image_url', image_url: { url } }))
-                            ]
-                        }
-                    ],
-                    max_tokens: 1200,
-                    temperature: 0.2,
-                    stream: false
-                }),
-                credentials: 'omit'
-            });
-
-            if (!response.ok) {
-                const errorMessage = await extractErrorMessage(response, 'Vision LLM 图片解析失败');
-                const requestError = new Error(errorMessage);
-                requestError.status = response.status;
-                throw requestError;
-            }
-
-            const data = await response.json();
-            const text = sanitizeTranslationOutput(extractOpenAIFinalText(data)).trim();
-            if (!text) throw new Error('Vision LLM 返回空内容');
-            return text;
-        } catch (error) {
-            lastError = error;
-            if (error.status === 404 && i < endpoints.length - 1) continue;
-            throw error;
-        }
-    }
-
-    throw lastError || new Error('Vision LLM 图片解析失败');
 }
 
 async function callAskVisionTool({ entry, system, userText, maxTokens, apiKey, serverUrl, providerConfig, model }) {

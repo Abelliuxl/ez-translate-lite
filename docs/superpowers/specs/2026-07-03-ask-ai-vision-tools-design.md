@@ -12,7 +12,7 @@
 
 ### Current behavior (v2.1.2)
 
-When a user attaches an image to Ask AI (right-click → "Ask AI ?" on an image, or programmatically from a translation result), the image is analyzed **exactly once** by an optional "独立 Vision LLM" via `buildAskMessagesWithVisionAnalysis` in `src/background/background.js:1221-1285`.
+When a user attaches an image to Ask AI (right-click → "Ask AI ?" on an image, or programmatically from a translation result), the image is sent to the Ask LLM as a one-shot pre-analysis was the v2.1.2 path; this spec replaces that path with tool-based vision (see below).
 
 The analysis produces a single text blob (≤8 bullet points) that is inlined into the **first** user message:
 
@@ -25,7 +25,7 @@ The analysis produces a single text blob (≤8 bullet points) that is inlined in
 
 After that, the image is **stripped from the message stream entirely**. In every subsequent turn, the Ask LLM has only the static text description to work from. It cannot re-look at the image, focus on a specific region, OCR a different part, or answer a follow-up question that requires new visual evidence.
 
-The cache in `askVisionAnalysisCache` (line 104) only prevents re-running the same one-shot analysis; it does not preserve the image for the Ask LLM to use later.
+The cache (no longer needed: the image is now preserved as an `image_ref` in `askImageCache` and is available to the Ask LLM via the `ocr_image` / `describe_image` / `answer_image` tools in every turn).
 
 ### Pain points
 
@@ -84,14 +84,15 @@ The first-turn cold-start experience is preserved: the user still gets a sensibl
 │     d. Run describe_image(image_ref,'short')│
 │        → 2-line "图片背景" injected into    │
 │        first user message                  │
-│  3. If askSearchEnabled + OpenAI-compatible:│
+│  3. If useAskTools (search OR vision configured)│
+│       + OpenAI-compatible:                   │
 │     → callOpenAICompatibleAskWithTools with │
 │       tools = [tavily_search, web_fetch,    │
 │                 ocr_image, describe_image,  │
 │                 answer_image]               │
 │  4. Else: callChatAPI (no tools, no image)  │
 │  5. Non-OpenAI-compatible provider:         │
-│     → existing buildAskMessagesWithVisionAnalysis
+│     → reject (image not supported)          │
 └──────────────────┬──────────────────────────┘
                    │ tool_choice: 'auto'
                    ▼
@@ -108,7 +109,7 @@ The first-turn cold-start experience is preserved: the user still gets a sensibl
 1. **Single image per session.** `chatAttachedImageUrl` in `content.js` stays a single string. Multiple images are explicitly deferred.
 2. **In-memory image cache keyed by `image_ref`.** No disk writes. MV3 service workers cannot host a local HTTP MCP server, so we cannot reuse `vision-mcp`'s deployment model; we **borrow only the tool shape and prompts**.
 3. **`image_ref` is opaque to the model.** Model sees `"image_1"`. SW resolves to cached `{ mime, base64 }`. This avoids leaking source URLs into tool arguments.
-4. **Reuse `askVisionEnabled` and `askVisionConfigId`.** No new settings. Tool availability = "Vision LLM configured AND OpenAI-compatible Ask LLM AND askSearchEnabled must also be true to expose tools". Tools are only exposed through `callOpenAICompatibleAskWithTools`.
+4. **Reuse `askVisionEnabled` and `askVisionConfigId`.** No new settings. Tool availability = "OpenAI-compatible Ask LLM AND (Ask search enabled OR Vision LLM configured)". The tools are only exposed through `callOpenAICompatibleAskWithTools`; the plain `callChatAPI` path has no tools.
 5. **Cold-start preserved.** First turn still injects a 2-line `describe(short)` summary so "what is this?" works without the model having to call a tool.
 6. **No tool for non-OpenAI providers.** Anthropic / Azure path keeps current one-shot pre-analysis; vision-mcp inspiration is not applied there.
 7. **No new tool-level quota.** `ASK_TOOL_LIMITS.maxIterations=6` caps total tool calls per turn loop. Sufficient for the use case.
@@ -137,7 +138,6 @@ ImageEntry = {
 |---|---|
 | `addImageEntry(sourceUrl, mime, base64)` | Create a new entry, return its `image_ref`. Use a monotonic counter (`image_1`, `image_2`, ...). The counter resets when the SW wakes fresh, which is fine because the cache itself is empty then. |
 | `getImageEntry(imageRef)` | Return the entry or `null`. If `null`, tool returns `{ error: '图片已失效，请重新附带' }`. |
-| `clearAll()` | Used between sessions (called when `handleAsk` starts a new top-level request? — see §5). |
 
 **Capacity:** Soft cap 8 entries, LRU eviction. (Single-image sessions stay at 1; multi-image is out of scope but the structure does not block it.)
 
@@ -175,7 +175,7 @@ The system prompts are localized versions of the prompts in `vision-mcp/proxy/vi
 
 1. Resolves the entry from `askImageCache` using `args.image_ref || "image_1"`.
 2. On miss, returns `{ error: '图片已失效，请重新附带' }`.
-3. Builds an OpenAI-compatible chat-completion request using the same `getOpenAICompatibleVisionEndpoints` / `buildOpenAICompatibleHeaders` helpers already used by `callOpenAICompatibleVisionAnalysis` (lines 1287-1338).
+3. Builds an OpenAI-compatible chat-completion request using the `getOpenAICompatibleVisionEndpoints` / `buildOpenAICompatibleHeaders` helpers via `callAskVisionTool`.
 4. Returns the assistant text in `{ content, model, mode: 'ocr' | 'describe' | 'answer' }`.
 5. Calls `emitToolStatus` with a Chinese label so the chat UI shows progress: "正在 OCR 图片", "正在描述图片（medium）", "正在针对图片回答问题".
 
@@ -262,9 +262,8 @@ If the SW dies between turns and restarts, `askImageCache` is empty.
 | Vision LLM 4xx/5xx | Tool returns `{ error: <provider message> }`. Model decides retry vs. surface. SW does not throw. |
 | No image attached and model calls a tool | Tool returns `{ error: '当前会话没有附带图片' }`. |
 | Cold-start describe call fails | Log, skip the 2-line injection, proceed. The user can still ask the model to use the tools. |
-| Provider is non-OpenAI-compatible | Tool path skipped entirely. Old `buildAskMessagesWithVisionAnalysis` runs as before. |
-| `askSearchEnabled === false` and provider is OpenAI-compatible | Tools are **not** exposed (no `callOpenAICompatibleAskWithTools` call). Old single-shot pre-analysis runs. |
-| Vision LLM call returns empty content | Tool returns `{ error: 'Vision LLM 返回空内容' }` (mirrors existing `callOpenAICompatibleVisionAnalysis` line 1328). |
+| Provider is non-OpenAI-compatible | Tool path skipped entirely. No tools exposed; plain `callChatAPI` runs. |
+| Vision LLM call returns empty content | Tool returns `{ error: 'Vision LLM 返回空内容' }`. |
 
 ---
 
@@ -286,7 +285,7 @@ Five scenarios:
 3. **Targeted QA.** Attach a chart, ask "第 3 个柱子是多少?". Expect `answer_image` call.
 4. **Long describe.** Attach image, ask "详细描述这张图里的所有元素". Expect `describe_image(detail=long)` call.
 5. **Vision LLM disabled.** Toggle `askVisionEnabled=false`. Old behavior must be unchanged: image is inlined directly if provider is OpenAI-compatible; error message if not.
-6. **Non-OpenAI provider (Anthropic).** Configure Anthropic. Old `buildAskMessagesWithVisionAnalysis` path runs. Behavior identical to v2.1.2.
+6. **Non-OpenAI provider (Anthropic).** Configure Anthropic. Plain `callChatAPI` runs (no tools, no image). Behavior identical to v2.1.2 for non-OpenAI providers.
 7. **Service-worker restart between turns.** Use chrome://serviceworker-internals to kill the SW. Re-attach image, continue conversation. Verify cache repopulates.
 
 ### Regression
@@ -300,7 +299,7 @@ Five scenarios:
 
 ## 8. Migration & rollout
 
-- No data migration. The `askVisionAnalysisCache` and `askImageCache` are both empty on first run.
+- No data migration. The `askImageCache` is empty on first run.
 - No settings migration. The existing `askVisionEnabled` / `askVisionConfigId` keys keep the same shape.
 - Versioning: bump `manifest.json` from `2.1.2` to `2.2.0` (minor — adds capability, does not break behavior).
 - Rollback: `git checkout pre-ask-vision-tools-v2.1.2 -- src/background/background.js src/settings/settings.html` and re-bump version if needed.

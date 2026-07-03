@@ -29,15 +29,14 @@ No new files. No new dependencies. No settings additions.
 ## Task 1: Add `askImageCache` module-level state
 
 **Files:**
-- Modify: `src/background/background.js:103-105` (just below `askVisionAnalysisCache`)
+- Modify: `src/background/background.js:103-105` (near the `askImageCache` declaration)
 
-- [ ] **Step 1: Add the cache + counter next to the existing `askVisionAnalysisCache`**
+- [ ] **Step 1: Add the cache + counter near the existing `askImageCache` block**
 
 In `src/background/background.js`, find the existing block:
 
 ```js
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
 const MAX_IMAGE_DATA_URL_BYTES = 6 * 1024 * 1024;
 ```
 
@@ -45,7 +44,6 @@ Replace it with:
 
 ```js
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
-const askVisionAnalysisCache = new Map();
 const askImageCache = new Map();
 let askImageCacheCounter = 0;
 const ASK_IMAGE_CACHE_LIMIT = 8;
@@ -240,7 +238,7 @@ const ASK_VISION_TOOL_SYSTEM_PROMPT = {
 };
 ```
 
-- [ ] **Step 2: Add a helper `callAskVisionTool` near `callOpenAICompatibleVisionAnalysis` (around line 1287) for the three tools' shared network call**
+- [ ] **Step 2: Add a helper `callAskVisionTool` for the three tools' shared network call**
 
 Insert the following function directly above `function buildOpenAICompatibleHeaders`:
 
@@ -477,14 +475,7 @@ Find the block:
         const hasImageInput = messagesContainImages(messages);
         let askMessages = messages;
 
-        if (hasImageInput && settingsResult.askVisionEnabled === true) {
-            askMessages = await buildAskMessagesWithVisionAnalysis({
-                messages,
-                configs,
-                visionConfigId: settingsResult.askVisionConfigId,
-                onProgress: sendProgress
-            });
-        } else if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
+        if (hasImageInput && !isOpenAICompatibleApiFormat(config.apiFormat)) {
             sendResponse({ error: '图片 Ask 直接发送目前仅支持 OpenAI-compatible LLM；请在 Ask 设置中启用独立 Vision LLM 解析。' });
             return;
         }
@@ -494,7 +485,7 @@ Replace it with the new logic that:
 - Resolves the vision config
 - Caches the image (data URLs synchronously, http(s) via `fetchImageAsDataUrl`)
 - Strips `image_url` parts
-- If `useSearchTools` (Ask LLM is OpenAI-compatible AND search enabled), pre-injects a 2-line `describe_image(short)` summary; otherwise falls back to the legacy pre-analysis path
+- **Tool exposure gate:** the Ask LLM gets the 5 tools (tavily_search, web_fetch, ocr_image, describe_image, answer_image) whenever `useAskTools = hasSearchConfig || visionCtx !== null`. The plain `callChatAPI` path runs only when neither search nor vision is configured. Cold-start summary runs regardless.
 
 ```js
         const hasImageInput = messagesContainImages(messages);
@@ -572,7 +563,7 @@ Replace it with the new logic that:
 
 - [ ] **Step 3: Hoist the cold-start summary block and pass `visionCtx` into the tool-call branch**
 
-**Important:** The cold-start summary MUST run regardless of `useSearchTools`, so it is hoisted out of the `if (useSearchTools)` branch. Otherwise the spec §4.4 promise ("Cold-start preserved. First turn still injects a 2-line `describe(short)` summary so 'what is this?' still works without the model calling a tool.") is broken in the non-search path: the Ask LLM receives stripped messages (image gone) with no textual anchor and emits a confused "I don't see an image" reply.
+**Important:** The cold-start summary MUST run regardless of `useAskTools`, so it is hoisted out of the `if (useAskTools)` branch. Otherwise the spec §4.4 promise ("Cold-start preserved. First turn still injects a 2-line `describe(short)` summary so 'what is this?' still works without the model calling a tool.") is broken in the non-tool path: the Ask LLM receives stripped messages (image gone) with no textual anchor and emits a confused "I don't see an image" reply.
 
 The summary is also injected into the **last** user message only (using an `injected` flag), not every user message, to avoid duplicating the summary across messages.
 
@@ -596,12 +587,14 @@ Find:
                 tavilyApiKey: settingsResult.askTavilyApiKey.trim(),
                 onProgress: sendProgress
             });
+        }
 ```
 
 Replace with:
 
 ```js
-        const useSearchTools = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const hasSearchConfig = settingsResult.askSearchEnabled === true && Boolean((settingsResult.askTavilyApiKey || '').trim());
+        const useAskTools = hasSearchConfig || visionCtx !== null;
         const isFirstAskTurn = askMessages.every(m => m.role !== 'assistant');
 
         // Cold-start: on the first turn, inject a 2-line describe_image(short) summary so
@@ -642,7 +635,7 @@ Replace with:
         }
 
         let result;
-        if (useSearchTools) {
+        if (useAskTools) {
             if (!isOpenAICompatibleApiFormat(config.apiFormat)) {
                 sendResponse({ error: 'Ask 联网搜索目前仅支持 OpenAI-compatible LLM 配置' });
                 return;
@@ -891,5 +884,5 @@ git push origin v2.2.0
 - [x] **Type consistency:** `visionCtx` is defined in Task 4 Step 2, passed in Task 4 Step 5, consumed in Task 3 Step 3 — names and shape match.
 - [x] **ImageEntry fields** match between Task 1 (`addImageEntry` writer) and Task 3 Step 2 (`callAskVisionTool` reader: uses `entry.mime`, `entry.base64`).
 - [x] **Function signatures** `callOpenAICompatibleAskWithTools` and `...AtEndpoint` are updated once each in Task 4 Step 5.
-- [x] **Cold-start scope (regression I-1):** The cold-start summary block is hoisted out of the `if (useSearchTools)` branch so it runs in BOTH the search path and the plain `callChatAPI` path. Without this, `useSearchTools=false` would strip the image and never inject the summary, breaking spec §4.4 in non-search Ask.
+- [x] **Cold-start scope (regression I-1):** The cold-start summary block is hoisted out of the `if (useAskTools)` branch so it runs in BOTH the tool-call path and the plain `callChatAPI` path. Without this, `useAskTools=false` would strip the image and never inject the summary, breaking spec §4.4 in the non-tool Ask path.
 - [x] **Cold-start injection (M-1):** The summary is injected into the **last** user message of the first turn only (via `injected` flag), not every user message — avoids duplicating the summary if there are multiple user messages.
