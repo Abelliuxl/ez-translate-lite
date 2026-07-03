@@ -100,6 +100,12 @@ const ASK_WEB_TOOLS_SYSTEM_PROMPT = [
     '默认短答，引用必要来源即可；不要把搜索结果整理成长篇报告，除非用户明确要求。'
 ].join('\n');
 
+const ASK_VISION_TOOL_SYSTEM_PROMPT = {
+    ocr: '按图中的阅读顺序逐字抽取所有可见文字。仅输出抽取到的文字本身，不要翻译、不要总结、不要加评论。保留原始换行。',
+    describe: '客观描述这张图片。以图片主体为开头，使用现在时、第三人称。不要推测意图。',
+    answer: '你是视觉问答助手。回答必须完全基于图片中可见的内容。如果图片信息不足，回答「图片未提供足够信息」。不要猜测。'
+};
+
 const ASK_IMAGE_CONTEXT_MENU_ID = 'llm-translate-ask-image';
 const askVisionAnalysisCache = new Map();
 const askImageCache = new Map();
@@ -1340,6 +1346,53 @@ async function callOpenAICompatibleVisionAnalysis({ config, apiKey, serverUrl, m
     throw lastError || new Error('Vision LLM 图片解析失败');
 }
 
+async function callAskVisionTool({ entry, system, userText, maxTokens, apiKey, serverUrl, providerConfig, model }) {
+    const endpoints = getOpenAICompatibleVisionEndpoints(providerConfig, serverUrl, model);
+    let lastError = null;
+
+    for (let i = 0; i < endpoints.length; i += 1) {
+        const endpoint = endpoints[i];
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: buildOpenAICompatibleHeaders(endpoint, apiKey),
+                body: JSON.stringify({
+                    model,
+                    messages: [
+                        { role: 'system', content: system },
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: userText },
+                                { type: 'image_url', image_url: { url: `data:${entry.mime};base64,${entry.base64}` } }
+                            ]
+                        }
+                    ],
+                    max_tokens: maxTokens,
+                    temperature: 0.2,
+                    stream: false
+                }),
+                credentials: 'omit'
+            });
+            if (!response.ok) {
+                const errorMessage = await extractErrorMessage(response, 'Vision 工具调用失败');
+                const requestError = new Error(errorMessage);
+                requestError.status = response.status;
+                throw requestError;
+            }
+            const data = await response.json();
+            const text = sanitizeTranslationOutput(extractOpenAIFinalText(data)).trim();
+            if (!text) throw new Error('Vision LLM 返回空内容');
+            return { content: text, model: (data.model || model || '').trim() };
+        } catch (error) {
+            lastError = error;
+            if (error.status === 404 && i < endpoints.length - 1) continue;
+            throw error;
+        }
+    }
+    throw lastError || new Error('Vision 工具调用失败');
+}
+
 function buildOpenAICompatibleHeaders(endpoint, apiKey) {
     const headers = {
         'Authorization': `Bearer ${apiKey}`,
@@ -1627,7 +1680,7 @@ function parseToolCallArguments(rawArgs) {
     }
 }
 
-async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToolStatus }) {
+async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToolStatus, visionCtx = null }) {
     if (toolName === 'tavily_search') {
         if (toolState.searches >= ASK_TOOL_LIMITS.maxSearches) {
             return { error: `搜索次数已达上限 ${ASK_TOOL_LIMITS.maxSearches}` };
@@ -1648,6 +1701,78 @@ async function executeAskTool({ toolName, args, tavilyApiKey, toolState, emitToo
         const url = String(args.url || '').trim();
         emitToolStatus(`正在打开网页：${url}`);
         return await fetchReadableWebPage(url);
+    }
+
+    if (toolName === 'ocr_image' || toolName === 'describe_image' || toolName === 'answer_image') {
+        if (!visionCtx) {
+            return { error: '当前 Ask LLM 未启用独立 Vision 工具' };
+        }
+        const { apiKey, serverUrl, model, providerConfig } = visionCtx;
+        const imageRef = String(args.image_ref || 'image_1');
+        const entry = getImageEntry(imageRef);
+        if (!entry) {
+            return { error: '图片已失效，请重新附带' };
+        }
+        if (toolName === 'answer_image') {
+            const question = String(args.question || '').trim();
+            if (!question) return { error: '缺少问题' };
+            const context = String(args.context || '').trim();
+            emitToolStatus(`正在针对图片回答问题：${question}`);
+            try {
+                const userText = context ? `${question}\n\n上下文：${context}` : question;
+                return await callAskVisionTool({
+                    entry,
+                    system: ASK_VISION_TOOL_SYSTEM_PROMPT.answer,
+                    userText,
+                    maxTokens: 800,
+                    apiKey,
+                    serverUrl,
+                    providerConfig,
+                    model
+                });
+            } catch (error) {
+                return { error: error.message || 'Vision 工具调用失败' };
+            }
+        }
+        if (toolName === 'ocr_image') {
+            emitToolStatus('正在 OCR 图片');
+            try {
+                return await callAskVisionTool({
+                    entry,
+                    system: ASK_VISION_TOOL_SYSTEM_PROMPT.ocr,
+                    userText: '请抽取图中的全部文字。',
+                    maxTokens: 1500,
+                    apiKey,
+                    serverUrl,
+                    providerConfig,
+                    model
+                });
+            } catch (error) {
+                return { error: error.message || 'Vision 工具调用失败' };
+            }
+        }
+        // describe_image
+        const detail = ['short', 'medium', 'long'].includes(args.detail) ? args.detail : 'medium';
+        const detailHint = {
+            short: '请简略描述这张图片。',
+            medium: '请详细描述这张图片。',
+            long: '请尽可能详尽地描述这张图片中的所有可见元素。'
+        }[detail];
+        emitToolStatus(`正在描述图片（${detail}）`);
+        try {
+            return await callAskVisionTool({
+                entry,
+                system: ASK_VISION_TOOL_SYSTEM_PROMPT.describe,
+                userText: detailHint,
+                maxTokens: detail === 'long' ? 1500 : 800,
+                apiKey,
+                serverUrl,
+                providerConfig,
+                model
+            });
+        } catch (error) {
+            return { error: error.message || 'Vision 工具调用失败' };
+        }
     }
 
     return { error: `未知工具: ${toolName || 'unknown'}` };
