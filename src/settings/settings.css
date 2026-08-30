@@ -604,3 +604,51 @@ label a:hover { text-decoration: underline; }
     .settings-save-actions .btn-primary { width: 100%; }
     .sync-actions { flex-direction: column; align-items: stretch; }
 }
+
+/* --- 思考模式开关行 --- */
+.thinking-toggle-row { margin-bottom: 8px; }
+.thinking-toggle-label { font-size: 14px; color: #343a40; font-weight: 500; }
+
+/* --- 思考兼容规则编辑器 --- */
+.thinking-rules-section {
+    margin-bottom: 30px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+}
+.thinking-rules-section textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 10px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    resize: vertical;
+}
+.thinking-rules-section textarea:focus {
+    outline: none;
+    border-color: #4dabf7;
+}
+.builtin-rules-details {
+    margin-top: 12px;
+}
+.builtin-rules-details summary {
+    cursor: pointer;
+    color: #495057;
+    font-size: 13px;
+    user-select: none;
+}
+.builtin-rules-details pre {
+    max-height: 320px;
+    overflow: auto;
+    margin: 10px 0 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+}

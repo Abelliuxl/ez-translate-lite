@@ -32,6 +32,43 @@
             </div>
         </section>
 
+        <section class="thinking-rules-section">
+            <div class="section-header">
+                <h2>思考兼容规则</h2>
+            </div>
+            <p class="hint">
+                不同供应商/模型关闭思考与调节强度的请求格式不同。插件内置了适配规则表（见下方「内置规则」），
+                会按「当前供应商 + 当前模型」自动选择格式；若内置规则缺失或过时，可在此补充自定义规则，优先级高于内置规则。
+            </p>
+            <div class="form-group">
+                <label for="thinking-rules-input">自定义规则（JSON 数组）</label>
+                <textarea id="thinking-rules-input" rows="10" placeholder='[
+  {
+    "id": "my-provider-glm",
+    "note": "示例：某中转的 glm 系列只能调强度、无法关闭",
+    "endpoints": ["api.example.com"],
+    "models": ["glm-*"],
+    "off": null,
+    "levels": [
+      { "value": "low", "label": "低", "params": { "reasoning_effort": "low" } },
+      { "value": "high", "label": "高", "params": { "reasoning_effort": "high" } }
+    ],
+    "effortParam": ["reasoning_effort"]
+  }
+]'></textarea>
+                <p class="hint">字段说明：endpoints 按域名片段匹配（也可用 providers 指定内置供应商 id）；models 支持 * 通配；off 为关闭思考时并入请求体的参数（null 表示该模型无法关闭）；levels 为思考强度档位；effortParam 是自定义强度值的构造路径；apiFormat/endpoint 可按模型强制切换请求格式；requestOverrides 可覆盖或移除请求体字段（值设为 null 即移除，如 {"temperature": null}）。</p>
+            </div>
+            <div class="sync-actions">
+                <button id="thinking-rules-apply" class="btn-primary" type="button">应用规则</button>
+                <button id="thinking-rules-clear" class="btn-secondary" type="button">清除自定义规则</button>
+            </div>
+            <p id="thinking-rules-status" class="sync-status">未添加自定义规则</p>
+            <details class="builtin-rules-details">
+                <summary>查看内置规则</summary>
+                <pre id="builtin-rules-json"></pre>
+            </details>
+        </section>
+
         <section class="github-section">
             <div class="github-content">
                 <h3 data-i18n="githubSectionTitle"></h3>
@@ -219,6 +256,8 @@
                         <optgroup label="聚合平台">
                             <option value="openrouter">OpenRouter</option>
                             <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+                            <option value="opencode-go">OpenCode Go</option>
+                            <option value="commandcode">Command Code</option>
                         </optgroup>
                         <optgroup label="中国平台">
                             <option value="longcat">Longcat AI</option>
@@ -287,15 +326,18 @@
                     <h4>高级选项</h4>
 
                     <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="config-thinking-checkbox">
-                            <span>启用思考模式</span>
-                        </label>
-                        <p class="hint">启用后模型会进行深度思考再回答。对 DeepSeek R1 等推理模型建议开启。</p>
+                        <div class="feature-toggle-row thinking-toggle-row">
+                            <span class="thinking-toggle-label">思考模式</span>
+                            <label class="config-card-toggle">
+                                <input type="checkbox" id="config-thinking-checkbox" role="switch">
+                                <span class="config-card-toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p class="hint" id="config-thinking-hint">开启后模型会先深度思考再回答；关闭时插件会按当前供应商/模型的适配规则请求直接输出答案。</p>
                     </div>
 
                     <div class="form-group" id="config-reasoning-group">
-                        <label for="config-reasoning-select">推理强度</label>
+                        <label for="config-reasoning-select">思考强度</label>
                         <select id="config-reasoning-select">
                             <option value="min">min</option>
                             <option value="low" selected>low</option>
@@ -303,6 +345,7 @@
                             <option value="high">high</option>
                             <option value="max">max</option>
                         </select>
+                        <p class="hint" id="config-reasoning-hint"></p>
                     </div>
 
                     <div class="form-group">
@@ -324,6 +367,7 @@
         </div>
     </div>
 
+    <script src="../common/thinking-profiles.js"></script>
     <script src="settings.js"></script>
 </body>
 </html>

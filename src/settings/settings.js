@@ -22,9 +22,31 @@ const PROVIDER_CONFIG = {
         apiKeyPlaceholder: 'sk-...',
         apiKeyHelp: 'https://cloud.siliconflow.cn/me/account/ak',
         modelsEndpoint: 'https://api.siliconflow.cn/v1/models',
-        modelsFilter: (models) => models.data.filter(m => 
+        modelsFilter: (models) => models.data.filter(m =>
             m.id && (m.type === 'chat' || m.id.includes('chat'))
         ),
+        apiFormat: 'openai'
+    },
+    'opencode-go': {
+        name: 'OpenCode Go',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'OpenCode Go API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyHelp: 'https://opencode.ai/zen',
+        modelsEndpoint: 'https://opencode.ai/zen/go/v1/models',
+        modelsFilter: (models) => (models.data || []).filter(m => m.id && !/embed|rerank|image|ocr|asr/i.test(m.id)),
+        apiFormat: 'openai'
+    },
+    commandcode: {
+        name: 'Command Code',
+        needApiKey: true,
+        needServerUrl: false,
+        apiKeyLabel: 'Command Code API Key',
+        apiKeyPlaceholder: 'user_...',
+        apiKeyHelp: 'https://api.commandcode.ai/',
+        modelsEndpoint: 'https://api.commandcode.ai/provider/v1/models',
+        modelsFilter: (models) => (models.data || []).filter(m => m.id && !/embed|rerank/i.test(m.id)),
         apiFormat: 'openai'
     },
     longcat: {
@@ -177,7 +199,8 @@ const SYNC_DATA_KEYS = [
     'askSearchEnabled',
     'askTavilyApiKey',
     'askVisionEnabled',
-    'askVisionConfigId'
+    'askVisionConfigId',
+    'thinkingProfileRules'
 ];
 
 // --- DOM 元素 ---
@@ -224,10 +247,20 @@ const el = {
     customModelInput: $('config-custom-model-input'),
 
     thinkingCheckbox: $('config-thinking-checkbox'),
+    thinkingHint: $('config-thinking-hint'),
+    reasoningGroup: $('config-reasoning-group'),
     reasoningSelect: $('config-reasoning-select'),
+    reasoningHint: $('config-reasoning-hint'),
     customReasoningCheckbox: $('config-custom-reasoning-checkbox'),
     customReasoningSection: $('config-custom-reasoning-section'),
     customReasoningInput: $('config-custom-reasoning-input'),
+
+    // 思考兼容规则编辑器
+    thinkingRulesInput: $('thinking-rules-input'),
+    thinkingRulesApply: $('thinking-rules-apply'),
+    thinkingRulesClear: $('thinking-rules-clear'),
+    thinkingRulesStatus: $('thinking-rules-status'),
+    builtinRulesJson: $('builtin-rules-json'),
 
     // 语言选择
     defaultTargetLanguage: $('default-target-language'),
@@ -518,6 +551,7 @@ function resetModalForm() {
     el.modelHint.textContent = '配置API密钥后点击"获取模型列表"按钮';
 
     modalProviderSettings = {};
+    void refreshThinkingUI();
 }
 
 function fillModalForm(config) {
@@ -547,6 +581,7 @@ function fillModalForm(config) {
     if (providerId && PROVIDER_CONFIG[providerId]) {
         setupModalProviderConfig(providerId, true);
     }
+    void refreshThinkingUI();
 }
 
 function collectModalForm() {
@@ -1236,6 +1271,7 @@ function setupEventListeners() {
         if (providerId) {
             setupModalProviderConfig(providerId);
         }
+        void refreshThinkingUI();
     });
 
     el.apiKeyInput.addEventListener('input', () => {
@@ -1260,6 +1296,7 @@ function setupEventListeners() {
 
     el.modelSelect.addEventListener('change', (e) => {
         modalProviderSettings.selectedModel = e.target.value;
+        void refreshThinkingUI();
     });
 
     el.customModelCheckbox.addEventListener('change', (e) => {
@@ -1271,6 +1308,7 @@ function setupEventListeners() {
             el.customModelInput.value = '';
         }
         updateModalCustomModelUI();
+        void refreshThinkingUI();
     });
 
     el.customModelInput.addEventListener('input', (e) => {
@@ -1278,6 +1316,7 @@ function setupEventListeners() {
         if (modalProviderSettings.useCustomModel) {
             modalProviderSettings.selectedModel = e.target.value;
         }
+        void refreshThinkingUI();
     });
 
     // 推理强度
@@ -1818,6 +1857,127 @@ async function initialize() {
     applyCreationUI();
     applyAskUI();
     setupEventListeners();
+    await initThinkingRulesEditor();
+}
+
+// --- 思考适配动态 UI ---
+// 按当前弹窗内的供应商 + 模型查适配规则，动态生成思考强度选项与提示文案
+async function getUserThinkingRulesForUI() {
+    try {
+        const result = await chrome.storage.local.get('thinkingProfileRules');
+        return EZThinkingProfiles.sanitizeRules(result.thinkingProfileRules);
+    } catch (error) {
+        return [];
+    }
+}
+
+function getCurrentModalModel() {
+    const useCustom = el.customModelCheckbox && el.customModelCheckbox.checked;
+    if (useCustom) return el.customModelInput.value.trim() || el.modelSelect.value || '';
+    return el.modelSelect.value || '';
+}
+
+async function refreshThinkingUI() {
+    if (!window.EZThinkingProfiles) return;
+
+    const providerId = el.configProvider.value;
+    const providerCfg = PROVIDER_CONFIG[providerId] || {};
+    const endpoint = el.serverUrlInput.value.trim() || providerCfg.modelsEndpoint || '';
+    const model = getCurrentModalModel();
+    const userRules = await getUserThinkingRulesForUI();
+    const profile = EZThinkingProfiles.resolveThinkingProfile(
+        { provider: providerId, endpoint, model },
+        userRules
+    );
+
+    const levels = Array.isArray(profile.levels) ? profile.levels : [];
+    if (levels.length > 0) {
+        el.reasoningGroup.style.display = '';
+        const previous = el.reasoningSelect.value;
+        el.reasoningSelect.innerHTML = '';
+        levels.forEach((level) => {
+            const option = document.createElement('option');
+            option.value = level.value;
+            option.textContent = level.value === level.label ? level.label : `${level.label} (${level.value})`;
+            el.reasoningSelect.appendChild(option);
+        });
+        el.reasoningSelect.value = levels.some((l) => l.value === previous) ? previous : levels[0].value;
+        el.reasoningHint.textContent = '可选档位由当前模型/供应商的思考适配规则决定，选中后按规则映射为对应请求参数。';
+    } else {
+        el.reasoningGroup.style.display = 'none';
+    }
+
+    if (profile.off === null) {
+        el.thinkingHint.textContent = `⚠️ 当前模型无法关闭思考${profile.note ? '：' + profile.note : ''}。关闭开关时不会发送任何思考参数，模型将按默认行为思考。`;
+    } else if (profile.id && profile.id !== 'default' && profile.note) {
+        el.thinkingHint.textContent = profile.note;
+    } else {
+        el.thinkingHint.textContent = '开启后模型会先深度思考再回答；关闭时插件会按当前供应商/模型的适配规则请求直接输出答案。';
+    }
+}
+
+// --- 思考兼容规则编辑器 ---
+async function initThinkingRulesEditor() {
+    if (!window.EZThinkingProfiles) return;
+
+    el.builtinRulesJson.textContent = JSON.stringify(EZThinkingProfiles.BUILTIN_PROFILES, null, 2);
+
+    try {
+        const result = await chrome.storage.local.get('thinkingProfileRules');
+        const saved = result.thinkingProfileRules;
+        if (Array.isArray(saved) && saved.length > 0) {
+            el.thinkingRulesInput.value = JSON.stringify(saved, null, 2);
+            el.thinkingRulesStatus.textContent = `已启用 ${saved.length} 条自定义规则（优先于内置规则）`;
+        }
+    } catch (error) {
+        // 存储读取失败时保持默认空状态
+    }
+
+    el.thinkingRulesApply.addEventListener('click', async () => {
+        const raw = el.thinkingRulesInput.value.trim();
+        if (!raw) {
+            await chrome.storage.local.remove('thinkingProfileRules');
+            el.thinkingRulesStatus.textContent = '未添加自定义规则';
+            showStatus('思考兼容规则已清空', 'success');
+            void refreshThinkingUI();
+            return;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (error) {
+            el.thinkingRulesStatus.textContent = `❌ JSON 解析失败：${error.message}`;
+            return;
+        }
+        if (!Array.isArray(parsed)) {
+            el.thinkingRulesStatus.textContent = '❌ 规则必须是一个 JSON 数组';
+            return;
+        }
+
+        const clean = EZThinkingProfiles.sanitizeRules(parsed);
+        if (clean.length === 0) {
+            el.thinkingRulesStatus.textContent = '❌ 没有有效的规则条目（每条需为对象）';
+            return;
+        }
+
+        await chrome.storage.local.set({ thinkingProfileRules: clean });
+        el.thinkingRulesInput.value = JSON.stringify(clean, null, 2);
+        const dropped = parsed.length - clean.length;
+        el.thinkingRulesStatus.textContent = dropped > 0
+            ? `⚠️ 已保存 ${clean.length} 条规则，${dropped} 条无效条目被忽略`
+            : `✅ 已保存 ${clean.length} 条规则，立即生效`;
+        showStatus('思考兼容规则已更新', 'success');
+        void refreshThinkingUI();
+    });
+
+    el.thinkingRulesClear.addEventListener('click', async () => {
+        await chrome.storage.local.remove('thinkingProfileRules');
+        el.thinkingRulesInput.value = '';
+        el.thinkingRulesStatus.textContent = '未添加自定义规则';
+        showStatus('自定义思考规则已清除', 'success');
+        void refreshThinkingUI();
+    });
 }
 
 document.addEventListener('DOMContentLoaded', initialize);

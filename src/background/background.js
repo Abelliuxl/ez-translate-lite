@@ -1,7 +1,20 @@
+// --- 思考参数适配层（供应商/模型 -> 请求参数格式规则表）---
+importScripts('/src/common/thinking-profiles.js');
+
 // --- 存储辅助函数 ---
 // 获取同步开关状态并返回相应的存储对象
 function getStorage() {
     return chrome.storage.local;
+}
+
+// 读取设置页保存的用户自定义思考规则（JSON 数组）
+async function getUserThinkingRules() {
+    try {
+        const result = await getStorage().get('thinkingProfileRules');
+        return EZThinkingProfiles.sanitizeRules(result.thinkingProfileRules);
+    } catch (error) {
+        return [];
+    }
 }
 
 // --- 提供商配置 ---
@@ -81,6 +94,20 @@ const PROVIDER_CONFIG = {
         modelsEndpoint: '{serverUrl}/v1/messages',
         visionEndpoint: '{serverUrl}/v1/messages',
         apiFormat: 'custom-anthropic',
+        supportsVision: true
+    },
+    'opencode-go': {
+        name: 'OpenCode Go',
+        modelsEndpoint: 'https://opencode.ai/zen/go/v1/chat/completions',
+        visionEndpoint: 'https://opencode.ai/zen/go/v1/chat/completions',
+        apiFormat: 'openai',
+        supportsVision: true
+    },
+    commandcode: {
+        name: 'Command Code',
+        modelsEndpoint: 'https://api.commandcode.ai/provider/v1/chat/completions',
+        visionEndpoint: 'https://api.commandcode.ai/provider/v1/chat/completions',
+        apiFormat: 'openai',
         supportsVision: true
     }
 };
@@ -717,7 +744,9 @@ async function handleAsk({ messages, stream, requestId, sender, sendResponse }) 
                 serverUrl,
                 model: selectedModel,
                 messages: askMessages,
-                onProgress: sendProgress
+                onProgress: sendProgress,
+                thinkingEnabled: resolved.thinkingEnabled,
+                reasoningEffort: resolved.reasoningEffort
             });
         }
 
@@ -789,13 +818,19 @@ function arrayBufferToBase64(buffer) {
 }
 
 function resolveConfigSettings(config) {
-    if (!config) return { currentProvider: null, selectedModel: '', apiKey: '', serverUrl: '' };
+    if (!config) return { currentProvider: null, selectedModel: '', apiKey: '', serverUrl: '', thinkingEnabled: false, reasoningEffort: 'low' };
     const model = config.useCustomModel ? (config.customModel || config.model) : config.model;
+    let reasoningEffort = config.reasoningEffort || 'low';
+    if (config.useCustomReasoningEffort && config.customReasoningEffort) {
+        reasoningEffort = config.customReasoningEffort;
+    }
     return {
         currentProvider: config.provider,
         apiKey: config.apiKey || '',
         serverUrl: config.serverUrl || '',
-        selectedModel: model || ''
+        selectedModel: model || '',
+        thinkingEnabled: Boolean(config.thinkingEnabled),
+        reasoningEffort
     };
 }
 
@@ -1196,24 +1231,34 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
     ]);
     const userPrompt = String(text);
 
-    if (config.apiFormat === 'openai') {
-        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress);
-    } else if (config.apiFormat === 'anthropic') {
-        return await callAnthropicAPI(config.modelsEndpoint, apiKey, model, systemPrompt, userPrompt, onProgress);
-    } else if (config.apiFormat === 'google') {
+    // 按供应商+模型查思考适配规则：允许按模型强制切换请求格式（如 commandcode 的 claude-* 走 Anthropic）
+    const userRules = await getUserThinkingRules();
+    const profile = EZThinkingProfiles.resolveThinkingProfile(
+        { provider, endpoint: resolveProfileEndpoint(config, serverUrl), model },
+        userRules
+    );
+    const thinkingContext = { thinkingEnabled, effort: reasoningEffort, provider, rules: userRules };
+    const apiFormat = (profile && profile.apiFormat) || config.apiFormat;
+
+    if (apiFormat === 'openai') {
+        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress, null, provider, userRules);
+    } else if (apiFormat === 'anthropic') {
+        const endpoint = (profile && profile.endpoint) || config.modelsEndpoint;
+        return await callAnthropicAPI([endpoint], apiKey, model, systemPrompt, userPrompt, onProgress, null, thinkingContext);
+    } else if (apiFormat === 'google') {
         return await callGoogleAPI(config.modelsEndpoint, apiKey, model, systemPrompt, userPrompt);
-    } else if (config.apiFormat === 'zhipu') {
+    } else if (apiFormat === 'zhipu') {
         return await callZhipuAPI(config.modelsEndpoint, apiKey, model, systemPrompt, userPrompt, onProgress);
-    } else if (config.apiFormat === 'azure') {
+    } else if (apiFormat === 'azure') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl).replace('{model}', model);
-        return await callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress);
-    } else if (config.apiFormat === 'ollama') {
+        return await callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress, null, provider, userRules);
+    } else if (apiFormat === 'ollama') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl);
         return await callOllamaAPI(endpoint, model, systemPrompt, userPrompt, onProgress);
-    } else if (config.apiFormat === 'custom-openai') {
+    } else if (apiFormat === 'custom-openai') {
         const endpoints = buildEndpointCandidates(serverUrl, '/chat/completions');
-        return await callOpenAICompatibleAPI(endpoints, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress);
-    } else if (config.apiFormat === 'custom-anthropic') {
+        return await callOpenAICompatibleAPI(endpoints, apiKey, model, systemPrompt, userPrompt, thinkingEnabled, reasoningEffort, onProgress, null, provider, userRules);
+    } else if (apiFormat === 'custom-anthropic') {
         const endpoints = buildEndpointCandidates(serverUrl, '/messages');
         const modelCandidates = [
             model,
@@ -1221,40 +1266,58 @@ async function callTranslationAPI({ provider, config, apiKey, serverUrl, model, 
             'claude-3-5-haiku-latest',
             'claude-3-5-sonnet-latest'
         ].filter(Boolean);
-        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, systemPrompt, userPrompt, onProgress);
+        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, systemPrompt, userPrompt, onProgress, null, thinkingContext);
     } else {
-        throw new Error(`未支持的API格式: ${config.apiFormat}`);
+        throw new Error(`未支持的API格式: ${apiFormat}`);
     }
+}
+
+// 思考规则匹配用的端点：占位符形式的 modelsEndpoint（custom/azure）退回 serverUrl
+function resolveProfileEndpoint(config, serverUrl) {
+    if (serverUrl && (!config.modelsEndpoint || config.modelsEndpoint.includes('{serverUrl}'))) {
+        return serverUrl;
+    }
+    return config.modelsEndpoint;
 }
 
 /**
  * 调用对话 API（用于 Ask 功能）
  */
-async function callChatAPI({ provider, config, apiKey, serverUrl, model, messages, onProgress = null }) {
+async function callChatAPI({ provider, config, apiKey, serverUrl, model, messages, onProgress = null, thinkingEnabled = false, reasoningEffort = 'low' }) {
     const userMessages = Array.isArray(messages) ? messages : [];
 
     if (userMessages.length === 0) {
         throw new Error('对话消息为空');
     }
 
-    if (config.apiFormat === 'openai') {
-        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, '', '', false, 'low', onProgress, userMessages);
-    } else if (config.apiFormat === 'anthropic') {
-        return await callAnthropicAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
-    } else if (config.apiFormat === 'google') {
+    // Ask 同样按供应商+模型查思考规则（含按模型切换请求格式）
+    const userRules = await getUserThinkingRules();
+    const profile = EZThinkingProfiles.resolveThinkingProfile(
+        { provider, endpoint: resolveProfileEndpoint(config, serverUrl), model },
+        userRules
+    );
+    const thinkingContext = { thinkingEnabled, effort: reasoningEffort, provider, rules: userRules };
+    const apiFormat = (profile && profile.apiFormat) || config.apiFormat;
+
+    if (apiFormat === 'openai') {
+        return await callOpenAICompatibleAPI(config.modelsEndpoint, apiKey, model, '', '', thinkingEnabled, reasoningEffort, onProgress, userMessages, provider, userRules);
+    } else if (apiFormat === 'anthropic') {
+        const endpoint = (profile && profile.endpoint) || config.modelsEndpoint;
+        return await callAnthropicAPI([endpoint], apiKey, model, '', '', onProgress, userMessages, thinkingContext);
+    } else if (apiFormat === 'google') {
         return await callGoogleAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
-    } else if (config.apiFormat === 'zhipu') {
+    } else if (apiFormat === 'zhipu') {
         return await callZhipuAPI(config.modelsEndpoint, apiKey, model, '', '', onProgress, userMessages);
-    } else if (config.apiFormat === 'azure') {
+    } else if (apiFormat === 'azure') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl).replace('{model}', model);
-        return await callOpenAICompatibleAPI(endpoint, apiKey, model, '', '', false, 'low', onProgress, userMessages);
-    } else if (config.apiFormat === 'ollama') {
+        return await callOpenAICompatibleAPI(endpoint, apiKey, model, '', '', thinkingEnabled, reasoningEffort, onProgress, userMessages, provider, userRules);
+    } else if (apiFormat === 'ollama') {
         const endpoint = config.modelsEndpoint.replace('{serverUrl}', serverUrl);
         return await callOllamaAPI(endpoint, model, '', '', onProgress, userMessages);
-    } else if (config.apiFormat === 'custom-openai') {
+    } else if (apiFormat === 'custom-openai') {
         const endpoints = buildEndpointCandidates(serverUrl, '/chat/completions');
-        return await callOpenAICompatibleAPI(endpoints, apiKey, model, '', '', false, 'low', onProgress, userMessages);
-    } else if (config.apiFormat === 'custom-anthropic') {
+        return await callOpenAICompatibleAPI(endpoints, apiKey, model, '', '', thinkingEnabled, reasoningEffort, onProgress, userMessages, provider, userRules);
+    } else if (apiFormat === 'custom-anthropic') {
         const endpoints = buildEndpointCandidates(serverUrl, '/messages');
         const modelCandidates = [
             model,
@@ -1262,9 +1325,9 @@ async function callChatAPI({ provider, config, apiKey, serverUrl, model, message
             'claude-3-5-haiku-latest',
             'claude-3-5-sonnet-latest'
         ].filter(Boolean);
-        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, '', '', onProgress, userMessages);
+        return await callAnthropicAPI(endpoints, apiKey, modelCandidates, '', '', onProgress, userMessages, thinkingContext);
     } else {
-        throw new Error(`未支持的API格式: ${config.apiFormat}`);
+        throw new Error(`未支持的API格式: ${apiFormat}`);
     }
 }
 
@@ -1887,10 +1950,12 @@ function decodeHtmlEntities(text) {
 
 
 // --- OpenAI兼容API ---
-async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, text, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null, messages = null) {
+async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, text, thinkingEnabled = false, reasoningEffort = 'low', onProgress = null, messages = null, providerId = '', userRules = null) {
     const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
     const streamRequested = typeof onProgress === 'function';
     let lastError = null;
+
+    const rules = Array.isArray(userRules) ? userRules : await getUserThinkingRules();
 
     for (let i = 0; i < endpoints.length; i++) {
         const currentEndpoint = endpoints[i];
@@ -1922,10 +1987,22 @@ async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, te
                     temperature: 0.3,
                     stream: streamMode
                 };
-                if (!thinkingEnabled) {
-                    requestBody.thinking = { type: 'disabled' };
-                } else if (reasoningEffort) {
-                    requestBody.reasoning_effort = reasoningEffort;
+                // 思考参数由适配规则决定（供应商/模型 -> 格式），未命中时走默认兜底格式
+                const profile = EZThinkingProfiles.resolveThinkingProfile(
+                    { provider: providerId, endpoint: currentEndpoint, model },
+                    rules
+                );
+                Object.assign(requestBody, EZThinkingProfiles.buildThinkingParams(profile, thinkingEnabled, reasoningEffort));
+                // 规则可对请求体做其它覆盖（值为 null 时移除该字段，如 kimi-k3 拒绝 temperature）
+                const overrides = profile && profile.requestOverrides;
+                if (overrides && typeof overrides === 'object') {
+                    Object.keys(overrides).forEach((key) => {
+                        if (overrides[key] === null || overrides[key] === undefined) {
+                            delete requestBody[key];
+                        } else {
+                            requestBody[key] = overrides[key];
+                        }
+                    });
                 }
                 response = await fetch(currentEndpoint, {
                     method: 'POST',
@@ -2060,7 +2137,7 @@ async function callOpenAICompatibleAPI(endpoint, apiKey, model, systemPrompt, te
 
 
 // --- Anthropic API ---
-async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null, messages = null) {
+async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onProgress = null, messages = null, thinkingContext = null) {
     const endpoints = Array.isArray(endpoint) ? endpoint : [endpoint];
     const modelCandidates = Array.isArray(model) ? [...new Set(model)] : [model];
     const streamRequested = typeof onProgress === 'function';
@@ -2096,17 +2173,40 @@ async function callAnthropicAPI(endpoint, apiKey, model, systemPrompt, text, onP
                             ? messages.filter(m => m.role !== 'system')
                             : [{ role: 'user', content: text }];
 
+                        // Anthropic 格式：不带 thinking 字段即关闭；开启时按适配规则的强度档位合并参数
+                        // （不能套用默认规则的 OpenAI 风格 off 参数）
+                        let thinkingParams = {};
+                        if (thinkingContext && thinkingContext.thinkingEnabled) {
+                            const profile = EZThinkingProfiles.resolveThinkingProfile(
+                                { provider: thinkingContext.provider, endpoint: currentEndpoint, model: currentModel },
+                                thinkingContext.rules || []
+                            );
+                            const effortValue = String(thinkingContext.effort || '').trim();
+                            const level = (Array.isArray(profile.levels) ? profile.levels : [])
+                                .find((l) => l && l.value === effortValue);
+                            if (level && level.params) {
+                                thinkingParams = { ...level.params };
+                            }
+                        }
+                        const anthropicBody = {
+                            model: currentModel,
+                            system: chatSystem,
+                            max_tokens: 4096,
+                            messages: chatMessages,
+                            temperature: 0.3,
+                            stream: streamMode,
+                            ...thinkingParams
+                        };
+                        // 思考预算必须小于 max_tokens，命中预算参数时相应抬高上限
+                        const budget = thinkingParams.thinking?.budget_tokens;
+                        if (typeof budget === 'number') {
+                            anthropicBody.max_tokens = Math.max(anthropicBody.max_tokens, budget + 2048);
+                        }
+
                         const response = await fetch(currentEndpoint, {
                             method: 'POST',
                             headers: authHeaderVariants[j],
-                            body: JSON.stringify({
-                                model: currentModel,
-                                system: chatSystem,
-                                max_tokens: 4096,
-                                messages: chatMessages,
-                                temperature: 0.3,
-                                stream: streamMode
-                            }),
+                            body: JSON.stringify(anthropicBody),
                             credentials: 'omit'
                         });
 
